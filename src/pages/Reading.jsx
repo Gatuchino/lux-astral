@@ -1377,7 +1377,8 @@ async function pollJob(jobId) {
     if (!job) continue;
     if (job.status === 'done') return (job.text || '').trim();
     if (job.status === 'error') {
-      throw new Error(job.error || 'llm job failed');
+      const detail = job.detail ? ` — ${job.detail}` : '';
+      throw new Error((job.error || 'llm job failed') + detail);
     }
     // status "pending": seguir esperando
   }
