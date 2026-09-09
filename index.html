@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcana Tarot — Sistema visual</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  /* ===========================================================
+     Shared iPhone Frame + Showcase Layout
+     =========================================================== */
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+  }
+
+  /* ----- Showcase shell ------------------------------------- */
+  .showcase {
+    width: 100%;
+    min-height: 100vh;
+    padding: 56px 36px 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  .showcase-header {
+    width: 100%;
+    max-width: 1600px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 72px;
+  }
+
+  .showcase-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    font-weight: 500;
+    opacity: 0.55;
+  }
+
+  .showcase-title {
+    font-size: clamp(40px, 5vw, 72px);
+    line-height: 0.98;
+    letter-spacing: -0.03em;
+    font-weight: 500;
+    margin-top: 16px;
+    max-width: 720px;
+  }
+
+  .showcase-meta {
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    opacity: 0.5;
+    text-align: right;
+    line-height: 1.7;
+  }
+
+  /* ----- Phone rail ----------------------------------------- */
+  .phone-rail-outer {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .phone-rail {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    flex-wrap: nowrap;
+    padding: 0 36px 12px;
+    width: max-content;
+    min-width: 100%;
+    justify-content: center;
+    margin: 0 auto;
+  }
+
+  /* ----- The phone itself ---------------------------------- */
+  .phone {
+    --phone-w: 320px;
+    --phone-h: 695px;
+    width: var(--phone-w);
+    height: var(--phone-h);
+    flex-shrink: 0;
+    background: #0a0a0a;
+    border-radius: 50px;
+    padding: 10px;
+    box-shadow:
+      0 0 0 1.5px rgba(255,255,255,0.06),
+      0 40px 80px -24px rgba(0,0,0,0.45),
+      0 24px 48px -12px rgba(0,0,0,0.3);
+    position: relative;
+  }
+
+  .phone-wrap {
+    width: var(--phone-w, 320px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+
+  .phone-screen {
+    width: 100%;
+    height: 100%;
+    border-radius: 40px;
+    overflow: hidden;
+    position: relative;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Dynamic island */
+  .phone-screen::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 30px;
+    background: #000;
+    border-radius: 16px;
+    z-index: 100;
+  }
+
+  /* iOS status bar */
+  .status-bar {
+    height: 50px;
+    padding: 16px 28px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: 14px;
+    font-weight: 600;
+    color: inherit;
+    flex-shrink: 0;
+    z-index: 50;
+  }
+
+  .status-bar .status-icons {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+
+  .status-bar svg {
+    width: 18px;
+    height: 12px;
+  }
+
+  /* Home indicator */
+  .home-indicator {
+    position: absolute;
+    bottom: 9px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 140px;
+    height: 4px;
+    background: currentColor;
+    opacity: 0.35;
+    border-radius: 2px;
+    z-index: 100;
+  }
+
+  /* Caption beneath each phone */
+  .phone-caption {
+    margin-top: 22px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    opacity: 0.45;
+    font-weight: 500;
+    pointer-events: none;
+  }
+
+  /* ----- Showcase footer (design system strip) -------------- */
+  .showcase-footer {
+    width: 100%;
+    max-width: 1600px;
+    margin-top: 120px;
+    padding-top: 32px;
+    border-top: 1px solid currentColor;
+    border-top-color: rgba(128,128,128,0.15);
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 48px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .footer-block-label {
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    opacity: 0.5;
+    margin-bottom: 12px;
+  }
+
+  .swatches {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .swatch {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    position: relative;
+  }
+
+  /* Hide scrollbars globally; scrolling still works */
+  *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+  * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+  html, body { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; }
+
+  /* Status bar icons utility */
+  .status-bar-signal {
+    display: inline-flex;
+    gap: 2px;
+    align-items: flex-end;
+  }
+  .status-bar-signal i {
+    width: 3px;
+    background: currentColor;
+    border-radius: 1px;
+    display: inline-block;
+  }
+  .status-bar-signal i:nth-child(1) { height: 4px; }
+  .status-bar-signal i:nth-child(2) { height: 6px; }
+  .status-bar-signal i:nth-child(3) { height: 8px; }
+  .status-bar-signal i:nth-child(4) { height: 10px; }
+
+  /* ===========================================================
+     Lune — Tarot & Astrology template
+     =========================================================== */
+  :root {
+    --bg: #0f0a24;
+    --bg-2: #1a1438;
+    --ink: #f0e2c0;
+    --ink-soft: #8a82a0;
+    --gold: #d4a85a;
+    --gold-deep: #8e6a30;
+    --purple: #5a3a8a;
+    --rose: #b86a8a;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: 'Cormorant Garamond', serif; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: radial-gradient(circle at 20% 20%, rgba(212,168,90,0.08) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(90,58,138,0.1) 0%, transparent 50%); pointer-events: none; z-index: 0; }
+  .showcase { position: relative; z-index: 1; }
+  .brand-mark { display: inline-flex; align-items: center; gap: 14px; color: var(--ink); }
+  .brand-mark-word { font-family: 'Cinzel', serif; font-size: 26px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 500; }
+  .brand-mark-tag { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.42em; text-transform: uppercase; color: var(--gold); margin-top: 4px; display: block; }
+  .showcase-title { font-family: 'Cinzel', serif; font-weight: 400; letter-spacing: 0.05em; text-transform: uppercase; }
+  .showcase-title em { font-family: 'Cormorant Garamond', serif; font-style: italic; color: var(--gold); letter-spacing: -0.01em; text-transform: none; }
+
+  .phone-screen { background: var(--bg); color: var(--ink); }
+
+  /* ===== Screen 1: Daily card ===== */
+  .s-daily { padding: 60px 22px 30px; flex: 1; overflow: hidden; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .d-greet { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.35em; opacity: 0.7; color: var(--gold); text-transform: uppercase; }
+  .d-date { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 14px; opacity: 0.8; margin-top: 4px; }
+  .d-h { font-family: 'Cinzel', serif; font-size: 18px; letter-spacing: 0.15em; margin-top: 16px; text-transform: uppercase; }
+  .d-card { width: 200px; aspect-ratio: 2/3; background: url('assets/tarot-moon.jpg') center/cover; border: 2px solid var(--gold); border-radius: 8px; position: relative; margin-top: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.6); }
+  .d-card .name { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 0.25em; color: var(--gold); text-transform: uppercase; background: rgba(15,10,36,0.9); padding: 6px 10px; backdrop-filter: blur(20px); }
+  .d-meaning { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; line-height: 1.5; margin-top: 18px; max-width: 280px; }
+  .d-cta { background: var(--gold); color: var(--bg); padding: 11px 22px; border-radius: 30px; font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; margin-top: auto; }
+
+  /* ===== Screen 2: Three-card spread ===== */
+  .s-spread { padding: 60px 22px 30px; flex: 1; overflow: hidden; }
+  .sp-h { font-family: 'Cinzel', serif; font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; text-align: center; opacity: 0.85; }
+  .sp-q { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 16px; line-height: 1.3; text-align: center; margin: 8px 22px 18px; opacity: 0.85; }
+  .sp-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+  .sp-card { aspect-ratio: 2/3; background-size: cover; background-position: center; border: 1.5px solid var(--gold); border-radius: 6px; position: relative; }
+  .sp-card .pos { position: absolute; top: -22px; left: 0; right: 0; text-align: center; font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 0.18em; color: var(--gold); text-transform: uppercase; }
+  .sp-card .name { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: 'Cinzel', serif; font-size: 8px; letter-spacing: 0.1em; color: var(--ink); text-transform: uppercase; background: rgba(15,10,36,0.85); padding: 3px; }
+  .sp-cards { padding-top: 22px; }
+  .sp-section-h { font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+  .sp-reading { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 13px; line-height: 1.55; opacity: 0.9; margin-bottom: 10px; }
+  .sp-quote { padding: 12px 16px; border-left: 2px solid var(--gold); font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 14px; line-height: 1.4; opacity: 0.9; }
+
+  /* ===== Screen 3: Birth chart ===== */
+  .s-chart { padding: 60px 22px 30px; flex: 1; overflow: hidden; }
+  .ch-eyebrow { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.3em; color: var(--gold); text-transform: uppercase; }
+  .ch-h { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 26px; line-height: 1.05; margin: 4px 0 18px; }
+  .ch-wheel { position: relative; aspect-ratio: 1; max-width: 260px; margin: 0 auto 18px; }
+  .ch-wheel svg { width: 100%; height: 100%; }
+  .ch-wheel-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .ch-wheel-center .sign { font-family: 'Cinzel', serif; font-size: 28px; letter-spacing: 0.05em; color: var(--gold); }
+  .ch-wheel-center .name { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 14px; opacity: 0.85; margin-top: 2px; }
+  .ch-planets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ch-planet { background: var(--bg-2); border: 1px solid rgba(212,168,90,0.2); border-radius: 12px; padding: 12px; display: flex; gap: 12px; align-items: center; }
+  .ch-planet .sym { font-family: 'Cinzel', serif; font-size: 22px; color: var(--gold); width: 28px; text-align: center; flex-shrink: 0; }
+  .ch-planet .info .l { font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 0.2em; opacity: 0.65; text-transform: uppercase; }
+  .ch-planet .info .v { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 13px; margin-top: 2px; }
+
+  /* ===== Screen 4: Tarot deck library ===== */
+  .s-deck { padding: 60px 22px 30px; flex: 1; overflow: hidden; }
+  .dk-eyebrow { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.3em; color: var(--gold); text-transform: uppercase; }
+  .dk-h { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 26px; line-height: 1.05; margin: 4px 0 18px; }
+  .dk-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .dk-card { aspect-ratio: 2/3; background-size: cover; background-position: center; border: 1px solid rgba(212,168,90,0.4); border-radius: 4px; position: relative; box-shadow: 0 6px 16px rgba(0,0,0,0.4); }
+  .dk-card .num { position: absolute; top: 4px; left: 0; right: 0; text-align: center; font-family: 'Cinzel', serif; font-size: 8px; letter-spacing: 0.18em; color: var(--gold); }
+  .dk-card .name { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-family: 'Cinzel', serif; font-size: 7px; letter-spacing: 0.1em; color: var(--ink); background: rgba(15,10,36,0.85); padding: 2px; text-transform: uppercase; }
+
+  /* ===== Screen 5: Lunar / moon phases ===== */
+  .s-moon { padding: 60px 22px 30px; flex: 1; overflow: hidden; }
+  .mo-eyebrow { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.3em; color: var(--gold); text-transform: uppercase; }
+  .mo-h { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 26px; line-height: 1.05; margin: 4px 0 14px; }
+  .mo-current { background: linear-gradient(135deg, var(--purple), var(--bg-2)); border: 1px solid var(--gold); border-radius: 16px; padding: 16px; text-align: center; margin-bottom: 18px; position: relative; overflow: hidden; }
+  .mo-current::before { content: ''; position: absolute; top: -20px; right: -20px; width: 100px; height: 100px; background: radial-gradient(circle, rgba(212,168,90,0.3) 0%, transparent 70%); }
+  .mo-ic { width: 80px; height: 80px; border-radius: 50%; background: #f0e2c0; position: relative; margin: 0 auto 10px; box-shadow: 0 0 30px rgba(240,226,192,0.5); overflow: hidden; }
+  .mo-ic::after { content: ''; position: absolute; right: -20px; top: -2px; width: 70px; height: 84px; background: var(--bg-2); border-radius: 50%; }
+  .mo-phase { font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: 0.2em; color: var(--gold); text-transform: uppercase; }
+  .mo-name { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 19px; margin-top: 4px; }
+  .mo-meta { font-size: 11px; opacity: 0.7; margin-top: 4px; letter-spacing: 0.1em; }
+  .mo-strip { display: flex; justify-content: space-between; gap: 4px; }
+  .mo-day { flex: 1; text-align: center; }
+  .mo-day .moon { width: 24px; height: 24px; border-radius: 50%; margin: 0 auto 4px; position: relative; overflow: hidden; }
+  .mo-day .moon.new { background: var(--bg-2); border: 1px solid rgba(212,168,90,0.3); }
+  .mo-day .moon.wax-c { background: linear-gradient(90deg, transparent 50%, #f0e2c0 50%); }
+  .mo-day .moon.first { background: linear-gradient(90deg, transparent 50%, #f0e2c0 50%); }
+  .mo-day .moon.wax-g { background: linear-gradient(90deg, var(--bg-2) 25%, #f0e2c0 25%); }
+  .mo-day .moon.full { background: #f0e2c0; box-shadow: 0 0 12px rgba(240,226,192,0.4); }
+  .mo-day .moon.wan-g { background: linear-gradient(90deg, #f0e2c0 75%, var(--bg-2) 75%); }
+  .mo-day .moon.last { background: linear-gradient(90deg, #f0e2c0 50%, transparent 50%); }
+  .mo-day .d { font-family: 'Cinzel', serif; font-size: 9px; opacity: 0.7; letter-spacing: 0.08em; }
+  .mo-day.today .d { color: var(--gold); }
+  .mo-section-h { font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 0.25em; color: var(--gold); margin: 18px 0 10px; text-transform: uppercase; }
+  .mo-ritual { background: var(--bg-2); border-left: 2px solid var(--gold); padding: 14px; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 13px; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div class="showcase">
+
+  <header class="showcase-header">
+    <div>
+      <div class="brand-mark">
+        <svg viewBox="0 0 64 64" width="56" height="56" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <g transform="rotate(-14 32 46)">
+            <rect x="14" y="16" width="20" height="32" rx="1.5" stroke="#d4a85a" stroke-width="1.4" fill="none"/>
+            <rect x="16.5" y="18.5" width="15" height="27" rx="0.5" stroke="#d4a85a" stroke-width="0.5" fill="none" opacity="0.55"/>
+          </g>
+          <g transform="rotate(14 32 46)">
+            <rect x="30" y="16" width="20" height="32" rx="1.5" stroke="#d4a85a" stroke-width="1.4" fill="none"/>
+            <rect x="32.5" y="18.5" width="15" height="27" rx="0.5" stroke="#d4a85a" stroke-width="0.5" fill="none" opacity="0.55"/>
+          </g>
+          <g transform="translate(32 14)">
+            <circle r="5" fill="#d4a85a"/>
+            <circle cx="1.8" cy="-0.6" r="4.2" fill="#0f0a24"/>
+          </g>
+          <circle cx="21" cy="10" r="0.7" fill="#d4a85a" opacity="0.7"/>
+          <circle cx="43" cy="10" r="0.7" fill="#d4a85a" opacity="0.7"/>
+          <line x1="14" y1="55" x2="50" y2="55" stroke="#d4a85a" stroke-width="0.75" opacity="0.35"/>
+        </svg>
+        <div>
+          <div class="brand-mark-word">Arcana</div>
+          <span class="brand-mark-tag">Tarot</span>
+        </div>
+      </div>
+      <div class="showcase-title">Tarot para<br>quien pregunta<br><em>con seriedad</em></div>
+    </div>
+    <div class="showcase-meta">
+      Sistema visual<br>
+      Navy · Oro · Cinzel<br>
+      v1.0
+    </div>
+  </header>
+
+  <div class="phone-rail-outer"><div class="phone-rail">
+
+    <!-- Phone 1 -->
+    <div class="phone-wrap"><div class="phone"><div class="phone-screen">
+      <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="status-bar-signal"><i></i><i></i><i></i><i></i></span><svg viewBox="0 0 16 11" fill="currentColor"><path d="M8 2.5a8 8 0 0 0-5.66 2.34l.95.95a6.66 6.66 0 0 1 9.42 0l.95-.95A8 8 0 0 0 8 2.5z"/></svg><svg viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="2.5" stroke="currentColor" opacity="0.5"/><rect x="2" y="2" width="17" height="7" rx="1.5" fill="currentColor"/></svg></div></div>
+      <div class="s-daily">
+        <div class="d-greet">YOUR CARD FOR</div>
+        <div class="d-date">Thursday, March 14</div>
+        <div class="d-h">The High Priestess</div>
+        <div class="d-card">
+          <div class="name">II · LA PAPESSE</div>
+        </div>
+        <div class="d-meaning">"Trust the quiet things you already know. The answer is waiting beneath the noise of the asking."</div>
+        <div class="d-cta">DRAW A NEW READING</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div><div class="phone-caption">01 · DAILY</div></div>
+
+    <!-- Phone 2 -->
+    <div class="phone-wrap"><div class="phone"><div class="phone-screen">
+      <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="status-bar-signal"><i></i><i></i><i></i><i></i></span><svg viewBox="0 0 16 11" fill="currentColor"><path d="M8 2.5a8 8 0 0 0-5.66 2.34l.95.95a6.66 6.66 0 0 1 9.42 0l.95-.95A8 8 0 0 0 8 2.5z"/></svg><svg viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="2.5" stroke="currentColor" opacity="0.5"/><rect x="2" y="2" width="17" height="7" rx="1.5" fill="currentColor"/></svg></div></div>
+      <div class="s-spread">
+        <div class="sp-h">PAST · PRESENT · FUTURE</div>
+        <div class="sp-q">"What does spring hold for me?"</div>
+        <div class="sp-cards">
+          <div class="sp-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="pos">PAST</span><span class="name">The Sun</span></div>
+          <div class="sp-card" style="background-image:url('assets/tarot-moon.jpg')"><span class="pos">PRESENT</span><span class="name">High Priestess</span></div>
+          <div class="sp-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="pos">FUTURE</span><span class="name">The Star</span></div>
+        </div>
+        <div class="sp-section-h">YOUR READING</div>
+        <div class="sp-reading">A bright spring is behind you, full of motion. The present asks you to slow — to listen. Trust will return you to clarity.</div>
+        <div class="sp-quote">"Spring belongs to those who learn to wait for it."</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div><div class="phone-caption">02 · SPREAD</div></div>
+
+    <!-- Phone 3 -->
+    <div class="phone-wrap"><div class="phone"><div class="phone-screen">
+      <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="status-bar-signal"><i></i><i></i><i></i><i></i></span><svg viewBox="0 0 16 11" fill="currentColor"><path d="M8 2.5a8 8 0 0 0-5.66 2.34l.95.95a6.66 6.66 0 0 1 9.42 0l.95-.95A8 8 0 0 0 8 2.5z"/></svg><svg viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="2.5" stroke="currentColor" opacity="0.5"/><rect x="2" y="2" width="17" height="7" rx="1.5" fill="currentColor"/></svg></div></div>
+      <div class="s-chart">
+        <div class="ch-eyebrow">YOUR · BIRTH CHART</div>
+        <div class="ch-h">Born under <em>Pisces</em>,<br>March 14</div>
+        <div class="ch-wheel">
+          <svg viewBox="0 0 260 260">
+            <circle cx="130" cy="130" r="120" fill="none" stroke="#d4a85a" stroke-width="1" opacity="0.5"/>
+            <circle cx="130" cy="130" r="90" fill="none" stroke="#d4a85a" stroke-width="0.5" opacity="0.4"/>
+            <circle cx="130" cy="130" r="60" fill="none" stroke="#d4a85a" stroke-width="0.5" opacity="0.3"/>
+            <g stroke="#d4a85a" stroke-width="0.5" opacity="0.3">
+              <line x1="10" y1="130" x2="250" y2="130"/>
+              <line x1="130" y1="10" x2="130" y2="250"/>
+              <line x1="46" y1="46" x2="214" y2="214"/>
+              <line x1="46" y1="214" x2="214" y2="46"/>
+            </g>
+            <text x="195" y="48" font-family="Cinzel" font-size="14" fill="#d4a85a">♓</text>
+            <text x="220" y="135" font-family="Cinzel" font-size="14" fill="#d4a85a">♈</text>
+            <text x="62" y="195" font-family="Cinzel" font-size="14" fill="#d4a85a">♍</text>
+            <text x="62" y="55" font-family="Cinzel" font-size="14" fill="#d4a85a">♒</text>
+            <circle cx="195" cy="80" r="5" fill="#d4a85a"/>
+            <circle cx="220" cy="155" r="4" fill="#f0e2c0"/>
+            <circle cx="75" cy="180" r="3" fill="#b86a8a"/>
+          </svg>
+          <div class="ch-wheel-center">
+            <div class="sign">♓</div>
+            <div class="name">Sun in Pisces</div>
+          </div>
+        </div>
+        <div class="ch-planets">
+          <div class="ch-planet">
+            <div class="sym">☉</div>
+            <div class="info"><div class="l">SUN</div><div class="v">Pisces · 23°</div></div>
+          </div>
+          <div class="ch-planet">
+            <div class="sym">☽</div>
+            <div class="info"><div class="l">MOON</div><div class="v">Cancer · 14°</div></div>
+          </div>
+          <div class="ch-planet">
+            <div class="sym">↑</div>
+            <div class="info"><div class="l">RISING</div><div class="v">Libra · 8°</div></div>
+          </div>
+          <div class="ch-planet">
+            <div class="sym">♀</div>
+            <div class="info"><div class="l">VENUS</div><div class="v">Aquarius · 18°</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div><div class="phone-caption">03 · BIRTH CHART</div></div>
+
+    <!-- Phone 4 -->
+    <div class="phone-wrap"><div class="phone"><div class="phone-screen">
+      <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="status-bar-signal"><i></i><i></i><i></i><i></i></span><svg viewBox="0 0 16 11" fill="currentColor"><path d="M8 2.5a8 8 0 0 0-5.66 2.34l.95.95a6.66 6.66 0 0 1 9.42 0l.95-.95A8 8 0 0 0 8 2.5z"/></svg><svg viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="2.5" stroke="currentColor" opacity="0.5"/><rect x="2" y="2" width="17" height="7" rx="1.5" fill="currentColor"/></svg></div></div>
+      <div class="s-deck">
+        <div class="dk-eyebrow">MAJOR · ARCANA</div>
+        <div class="dk-h">The 22 <em>cards</em></div>
+        <div class="dk-grid">
+          <div class="dk-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="num">0</span><span class="name">The Fool</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-moon.jpg')"><span class="num">I</span><span class="name">Magician</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="num">II</span><span class="name">Priestess</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-moon.jpg')"><span class="num">III</span><span class="name">Empress</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="num">IV</span><span class="name">Emperor</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-moon.jpg')"><span class="num">V</span><span class="name">Hierophant</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="num">VI</span><span class="name">Lovers</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-moon.jpg')"><span class="num">VII</span><span class="name">Chariot</span></div>
+          <div class="dk-card" style="background-image:url('assets/tarot-sun.jpg')"><span class="num">VIII</span><span class="name">Strength</span></div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div><div class="phone-caption">04 · DECK</div></div>
+
+    <!-- Phone 5 -->
+    <div class="phone-wrap"><div class="phone"><div class="phone-screen">
+      <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="status-bar-signal"><i></i><i></i><i></i><i></i></span><svg viewBox="0 0 16 11" fill="currentColor"><path d="M8 2.5a8 8 0 0 0-5.66 2.34l.95.95a6.66 6.66 0 0 1 9.42 0l.95-.95A8 8 0 0 0 8 2.5z"/></svg><svg viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="2.5" stroke="currentColor" opacity="0.5"/><rect x="2" y="2" width="17" height="7" rx="1.5" fill="currentColor"/></svg></div></div>
+      <div class="s-moon">
+        <div class="mo-eyebrow">LUNAR · CYCLE</div>
+        <div class="mo-h">The <em>moon,</em> today</div>
+        <div class="mo-current">
+          <div class="mo-ic"></div>
+          <div class="mo-phase">WANING CRESCENT</div>
+          <div class="mo-name">"A time for letting go"</div>
+          <div class="mo-meta">22% ILLUMINATED · DAY 26 OF CYCLE</div>
+        </div>
+        <div class="mo-strip">
+          <div class="mo-day"><div class="moon new"></div><div class="d">M</div></div>
+          <div class="mo-day"><div class="moon wax-c"></div><div class="d">T</div></div>
+          <div class="mo-day"><div class="moon first"></div><div class="d">W</div></div>
+          <div class="mo-day today"><div class="moon wax-g"></div><div class="d">T</div></div>
+          <div class="mo-day"><div class="moon full"></div><div class="d">F</div></div>
+          <div class="mo-day"><div class="moon wan-g"></div><div class="d">S</div></div>
+          <div class="mo-day"><div class="moon last"></div><div class="d">S</div></div>
+        </div>
+        <div class="mo-section-h">RITUAL FOR TODAY</div>
+        <div class="mo-ritual">"Light a candle. Write what you are ready to release on a small piece of paper. Burn it (safely). Watch the smoke."</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div><div class="phone-caption">05 · MOON</div></div>
+
+  </div></div>
+
+  <footer class="showcase-footer">
+    <div>
+      <div class="footer-block-label">Concepto</div>
+      Arcana — una plataforma de tarot que se toma en serio a sí misma. Navy cósmico profundo, oro laminado, Cinzel para lo ceremonial, Cormorant itálico para lo personal. Las cartas como objetos, no como truco.
+    </div>
+    <div>
+      <div class="footer-block-label">Palette</div>
+      <div class="swatches">
+        <span class="swatch" style="background:#0f0a24;border:1px solid #2a224a"></span>
+        <span class="swatch" style="background:#d4a85a"></span>
+        <span class="swatch" style="background:#5a3a8a"></span>
+        <span class="swatch" style="background:#f0e2c0"></span>
+      </div>
+    </div>
+    <div>
+      <div class="footer-block-label">Typography</div>
+      <div style="font-family:'Cinzel',serif;font-size:18px;letter-spacing:0.1em;text-transform:uppercase">CINZEL · DISPLAY</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:14px">Cormorant · italic</div>
+    </div>
+    <div>
+      <div class="footer-block-label">Use Cases</div>
+      Tarot<br>Astrology<br>Spirituality<br>Wellness / Self-reflection
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

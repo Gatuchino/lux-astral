@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcana — El mazo completo</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy-deep: #050310;
+    --navy: #0a0618;
+    --navy-mid: #14092e;
+    --purple: #5a3a8a;
+    --gold: #d4a85a;
+    --gold-soft: #b89143;
+    --cream: #f0e2c0;
+    --cream-dim: rgba(240, 226, 192, 0.65);
+    --cream-mute: rgba(240, 226, 192, 0.35);
+    --rule: rgba(212, 168, 90, 0.22);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--navy);
+    color: var(--cream);
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* fixed starfield background */
+  .starfield {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 120% 80% at 50% -10%, rgba(90, 58, 138, 0.35) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 60% at 50% 110%, rgba(20, 9, 46, 0.5) 0%, transparent 60%),
+      var(--navy);
+    pointer-events: none;
+  }
+  .starfield::before, .starfield::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 7% 12%, #f0e2c0, transparent 50%),
+      radial-gradient(1.5px 1.5px at 23% 44%, #d4a85a, transparent 50%),
+      radial-gradient(1px 1px at 41% 22%, #f0e2c0, transparent 50%),
+      radial-gradient(1px 1px at 58% 71%, #f0e2c0, transparent 50%),
+      radial-gradient(1.5px 1.5px at 72% 34%, #d4a85a, transparent 50%),
+      radial-gradient(1px 1px at 84% 58%, #f0e2c0, transparent 50%),
+      radial-gradient(1px 1px at 92% 18%, #d4a85a, transparent 50%),
+      radial-gradient(1px 1px at 12% 78%, #f0e2c0, transparent 50%),
+      radial-gradient(1px 1px at 34% 88%, #d4a85a, transparent 50%),
+      radial-gradient(1px 1px at 66% 92%, #f0e2c0, transparent 50%);
+    opacity: 0.35;
+  }
+  .starfield::after {
+    background-image:
+      radial-gradient(1px 1px at 17% 55%, #f0e2c0, transparent 50%),
+      radial-gradient(1px 1px at 47% 8%, #d4a85a, transparent 50%),
+      radial-gradient(1px 1px at 63% 47%, #f0e2c0, transparent 50%),
+      radial-gradient(1px 1px at 88% 82%, #d4a85a, transparent 50%),
+      radial-gradient(1px 1px at 4% 33%, #f0e2c0, transparent 50%);
+    opacity: 0.5;
+    animation: twinkle 8s ease-in-out infinite alternate;
+  }
+  @keyframes twinkle { from { opacity: 0.2; } to { opacity: 0.6; } }
+
+  /* ── page shell ─────────────────────────────────────────── */
+  .page { position: relative; z-index: 1; }
+
+  .top-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 20px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 20;
+    background: linear-gradient(to bottom, rgba(5, 3, 16, 0.75) 0%, transparent 100%);
+    pointer-events: none;
+  }
+  .top-bar > * { pointer-events: auto; }
+  .back-link {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--cream-dim);
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: color 0.3s;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .back-link:hover { color: var(--gold); }
+  .back-link::before { content: '←'; font-size: 14px; }
+
+  .top-mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: var(--cream);
+  }
+  .top-mark-icon {
+    width: 20px; height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gold);
+  }
+
+  /* ── side nav (anchors) ─────────────────────────────────── */
+  .side-nav {
+    position: fixed;
+    top: 50%;
+    right: 32px;
+    transform: translateY(-50%);
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 12px;
+    background: rgba(10, 6, 24, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--rule);
+    border-radius: 24px;
+  }
+  .side-nav a {
+    position: relative;
+    display: block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(240, 226, 192, 0.25);
+    transition: all 0.3s;
+  }
+  .side-nav a:hover, .side-nav a.active {
+    background: var(--gold);
+    box-shadow: 0 0 10px rgba(212, 168, 90, 0.6);
+  }
+  .side-nav a::after {
+    content: attr(data-label);
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    color: var(--cream);
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 4px 10px;
+    background: rgba(10, 6, 24, 0.9);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .side-nav a:hover::after { opacity: 1; }
+  @media (max-width: 900px) { .side-nav { display: none; } }
+
+  /* ── generic ────────────────────────────────────────────── */
+  .container { max-width: 1280px; margin: 0 auto; padding: 0 48px; }
+  .container-narrow { max-width: 880px; margin: 0 auto; padding: 0 48px; }
+  @media (max-width: 640px) { .container, .container-narrow { padding: 0 24px; } }
+
+  .eyebrow {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.4em;
+    color: var(--gold);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .rule {
+    height: 1px;
+    background: var(--rule);
+    border: none;
+    max-width: 120px;
+  }
+  .rule.center { margin: 0 auto; }
+
+  /* ── HERO ───────────────────────────────────────────────── */
+  section.hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 120px 0 80px;
+    position: relative;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 80px;
+    align-items: center;
+  }
+  .hero-copy .eyebrow { margin-bottom: 32px; }
+  .hero h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(56px, 8vw, 128px);
+    font-weight: 500;
+    line-height: 0.92;
+    letter-spacing: -0.02em;
+    color: var(--cream);
+    margin-bottom: 24px;
+  }
+  .hero h1 em {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    color: var(--gold);
+    font-weight: 400;
+  }
+  .hero-kicker {
+    font-size: 20px;
+    line-height: 1.55;
+    color: var(--cream-dim);
+    max-width: 480px;
+    font-style: italic;
+    margin-bottom: 48px;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+  .hero-meta-item {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+  .hero-meta-item .k { color: var(--cream-mute); display: block; margin-bottom: 6px; }
+  .hero-meta-item .v { color: var(--cream); font-size: 12px; letter-spacing: 0.25em; }
+
+  .hero-card {
+    position: relative;
+    width: 280px;
+    aspect-ratio: 2/3;
+    transform: rotate(-4deg);
+    transition: transform 0.6s ease;
+  }
+  .hero-card:hover { transform: rotate(-2deg) translateY(-8px); }
+  .hero-card img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 14px;
+    display: block;
+    box-shadow:
+      0 40px 80px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(212, 168, 90, 0.4),
+      0 0 60px rgba(212, 168, 90, 0.15);
+  }
+  .hero-card::before {
+    content: '';
+    position: absolute;
+    inset: -60px;
+    background: radial-gradient(circle, rgba(212, 168, 90, 0.15) 0%, transparent 60%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .hero-card-tag {
+    position: absolute;
+    bottom: -50px;
+    left: 50%;
+    transform: translateX(-50%) rotate(4deg);
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 15px;
+    color: var(--cream-dim);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; text-align: left; }
+    .hero-card { margin: 40px 0 60px; }
+  }
+
+  .scroll-cue {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 0.4em;
+    color: var(--cream-mute);
+    text-transform: uppercase;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .scroll-cue::after {
+    content: '';
+    width: 1px; height: 32px;
+    background: linear-gradient(to bottom, var(--gold), transparent);
+    animation: cue 2.5s ease-in-out infinite;
+  }
+  @keyframes cue { 0%, 100% { transform: scaleY(0.6); opacity: 0.3; } 50% { transform: scaleY(1); opacity: 1; } }
+
+  /* ── INDEX ──────────────────────────────────────────────── */
+  section.index {
+    padding: 140px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .section-head {
+    text-align: center;
+    margin-bottom: 72px;
+  }
+  .section-head .eyebrow { margin-bottom: 20px; display: block; }
+  .section-head h2 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(36px, 4vw, 56px);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--cream);
+    line-height: 1.05;
+  }
+  .section-head h2 em {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    color: var(--gold);
+    font-weight: 400;
+  }
+  .section-head .sub {
+    margin-top: 16px;
+    font-style: italic;
+    color: var(--cream-dim);
+    font-size: 18px;
+  }
+
+  .index-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 80px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  @media (max-width: 720px) { .index-list { grid-template-columns: 1fr; } }
+  .index-row {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px dashed rgba(212, 168, 90, 0.15);
+    text-decoration: none;
+    color: inherit;
+    transition: color 0.25s;
+  }
+  .index-row:hover { color: var(--gold); }
+  .index-row:hover .idx-num { color: var(--cream); }
+  .index-row .idx-num {
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    color: var(--gold);
+    transition: color 0.25s;
+  }
+  .index-row .idx-name {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 20px;
+  }
+  .index-row .idx-name em {
+    font-style: italic;
+    color: var(--cream-mute);
+    font-size: 16px;
+    margin-left: 10px;
+  }
+  .index-row .idx-page {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--cream-mute);
+  }
+
+  /* ── curator note ───────────────────────────────────────── */
+  section.note {
+    padding: 120px 0;
+  }
+  .note-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 80px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .note-grid { grid-template-columns: 1fr; gap: 40px; } }
+  .note-title {
+    font-family: 'Cinzel', serif;
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.005em;
+  }
+  .note-title em { font-family: 'Cormorant Garamond', serif; font-style: italic; color: var(--gold); font-weight: 400; }
+  .note-body p {
+    font-size: 18px;
+    line-height: 1.7;
+    color: var(--cream-dim);
+    margin-bottom: 20px;
+  }
+  .note-body p em { color: var(--cream); font-style: italic; }
+  .palette-strip {
+    margin-top: 32px;
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .swatch-chip {
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+  .swatch-name {
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--cream-dim);
+  }
+  .swatch-hex {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--cream-mute);
+  }
+
+  /* ── act openers ────────────────────────────────────────── */
+  section.act-opener {
+    padding: 180px 0 120px;
+    text-align: center;
+    position: relative;
+  }
+  .act-numeral {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(180px, 22vw, 320px);
+    font-weight: 400;
+    line-height: 0.85;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(212, 168, 90, 0.35);
+    letter-spacing: -0.02em;
+    margin-bottom: 32px;
+    user-select: none;
+  }
+  .act-title {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(32px, 4vw, 52px);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--cream);
+    margin-bottom: 24px;
+    line-height: 1.05;
+  }
+  .act-title em { font-family: 'Cormorant Garamond', serif; font-style: italic; color: var(--gold); font-weight: 400; }
+  .act-lede {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1.55;
+    color: var(--cream-dim);
+    max-width: 620px;
+    margin: 0 auto 40px;
+  }
+  .act-range {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--gold);
+    text-transform: uppercase;
+  }
+  .act-range::before, .act-range::after {
+    content: '';
+    width: 32px; height: 1px;
+    background: var(--gold);
+    display: inline-block;
+  }
+
+  /* ── card entries ───────────────────────────────────────── */
+  section.act-body { padding: 40px 0 80px; }
+  .entry {
+    padding: 60px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .entry:last-child { border-bottom: none; }
+
+  /* Layout A: card left, text right */
+  .entry-a {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 64px;
+    align-items: center;
+  }
+  .entry-a.reverse { grid-template-columns: 1fr 320px; }
+  .entry-a.reverse .entry-card { order: 2; }
+  .entry-a.reverse .entry-copy { order: 1; }
+
+  /* Layout B: hero, centered card */
+  .entry-b {
+    text-align: center;
+  }
+  .entry-b .entry-card {
+    width: 340px;
+    margin: 0 auto 40px;
+  }
+  .entry-b .entry-copy { max-width: 560px; margin: 0 auto; }
+  .entry-b .entry-keywords { justify-content: center; }
+
+  /* Layout C: pair — two cards + text between */
+  .entry-c {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .entry-c .entry-card { width: 100%; max-width: 260px; }
+  .entry-c .entry-card.right { justify-self: end; }
+  .entry-c .entry-copy { text-align: center; }
+  .entry-c .entry-keywords { justify-content: center; }
+
+  @media (max-width: 900px) {
+    .entry-a, .entry-a.reverse, .entry-c { grid-template-columns: 1fr; text-align: left; }
+    .entry-a.reverse .entry-card, .entry-a.reverse .entry-copy { order: initial; }
+    .entry-a .entry-card, .entry-c .entry-card { width: 240px; }
+    .entry-c .entry-card.right { justify-self: start; }
+    .entry-b .entry-card { width: 260px; }
+  }
+
+  .entry-card {
+    position: relative;
+    aspect-ratio: 2/3;
+    cursor: pointer;
+    transition: transform 0.5s cubic-bezier(.2,.9,.3,1);
+  }
+  .entry-card:hover { transform: translateY(-8px); }
+  .entry-card img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 12px;
+    display: block;
+    box-shadow:
+      0 30px 60px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(212, 168, 90, 0.3);
+    transition: box-shadow 0.5s;
+  }
+  .entry-card:hover img {
+    box-shadow:
+      0 40px 80px rgba(0, 0, 0, 0.65),
+      0 0 0 1px rgba(212, 168, 90, 0.6),
+      0 0 50px rgba(212, 168, 90, 0.25);
+  }
+
+  .entry-copy .entry-num {
+    font-family: 'Cinzel', serif;
+    font-size: 14px;
+    letter-spacing: 0.4em;
+    color: var(--gold);
+    margin-bottom: 12px;
+  }
+  .entry-copy h3 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+    color: var(--cream);
+    margin-bottom: 4px;
+  }
+  .entry-copy .entry-name-es {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 20px;
+    color: var(--cream-mute);
+    margin-bottom: 24px;
+  }
+  .entry-keywords {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+  .kw {
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--cream-dim);
+    padding: 6px 12px;
+    border: 1px solid var(--rule);
+    border-radius: 100px;
+  }
+  .entry-quote {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--cream);
+    padding-left: 18px;
+    border-left: 2px solid var(--gold);
+    margin-top: 8px;
+  }
+  .entry-b .entry-quote, .entry-c .entry-quote { border-left: none; padding-left: 0; }
+  .entry-b .entry-quote::before, .entry-c .entry-quote::before { content: '“'; color: var(--gold); font-size: 42px; line-height: 0; vertical-align: -14px; margin-right: 6px; }
+  .entry-b .entry-quote::after, .entry-c .entry-quote::after { content: '”'; color: var(--gold); font-size: 42px; line-height: 0; vertical-align: -20px; margin-left: 4px; }
+
+  /* ── back of the deck ───────────────────────────────────── */
+  section.reverse {
+    padding: 180px 0 160px;
+    text-align: center;
+    border-top: 1px solid var(--rule);
+  }
+  .reverse-card {
+    width: 380px;
+    aspect-ratio: 2/3;
+    margin: 0 auto 48px;
+    position: relative;
+    transition: transform 0.6s;
+  }
+  .reverse-card:hover { transform: translateY(-10px) scale(1.02); }
+  .reverse-card img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 14px;
+    display: block;
+    box-shadow:
+      0 40px 100px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(212, 168, 90, 0.5),
+      0 0 80px rgba(212, 168, 90, 0.2);
+  }
+  .reverse-card::before {
+    content: '';
+    position: absolute;
+    inset: -80px;
+    background: radial-gradient(circle, rgba(212, 168, 90, 0.15) 0%, transparent 60%);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* ── colofón ────────────────────────────────────────────── */
+  section.colophon {
+    padding: 120px 0 100px;
+    border-top: 1px solid var(--rule);
+  }
+  .colophon-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 48px;
+    margin-bottom: 80px;
+  }
+  @media (max-width: 720px) { .colophon-grid { grid-template-columns: repeat(2, 1fr); } }
+  .col-item .k {
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--cream-mute);
+    margin-bottom: 10px;
+  }
+  .col-item .v {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 17px;
+    color: var(--cream);
+    line-height: 1.4;
+  }
+  .col-item .v em { color: var(--gold); font-style: italic; }
+  .col-mark {
+    text-align: center;
+    padding-top: 60px;
+    border-top: 1px solid var(--rule);
+  }
+  .col-mark-logo {
+    font-family: 'Cinzel', serif;
+    font-size: 18px;
+    letter-spacing: 0.4em;
+    color: var(--cream);
+    margin-bottom: 10px;
+  }
+  .col-mark-tag {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 15px;
+    color: var(--cream-mute);
+  }
+
+  /* ── lightbox ───────────────────────────────────────────── */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 3, 16, 0.95);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 40px;
+    backdrop-filter: blur(24px);
+  }
+  .lightbox.on { display: flex; }
+  .lightbox-inner {
+    display: grid;
+    grid-template-columns: auto 380px;
+    gap: 56px;
+    align-items: center;
+    max-width: 900px;
+  }
+  @media (max-width: 720px) {
+    .lightbox-inner { grid-template-columns: 1fr; gap: 32px; }
+    .lightbox { padding: 20px; overflow-y: auto; }
+  }
+  .lightbox img.lb-card {
+    max-width: min(420px, 60vw);
+    max-height: 82vh;
+    border-radius: 16px;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.7), 0 0 60px rgba(212, 168, 90, 0.3);
+    display: block;
+  }
+  .lb-info .eyebrow { display: block; margin-bottom: 12px; }
+  .lb-info h4 {
+    font-family: 'Cinzel', serif;
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 1.05;
+    color: var(--cream);
+    margin-bottom: 4px;
+  }
+  .lb-info .lb-es {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--cream-mute);
+    margin-bottom: 24px;
+  }
+  .lb-info .lb-kws { margin-bottom: 24px; }
+  .lb-info .lb-quote {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--cream);
+    padding-left: 16px;
+    border-left: 2px solid var(--gold);
+  }
+  .lb-close {
+    position: absolute;
+    top: 24px;
+    right: 32px;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--cream-dim);
+    background: none;
+    border: 1px solid var(--rule);
+    padding: 10px 18px;
+    border-radius: 100px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.25s;
+  }
+  .lb-close:hover { color: var(--gold); border-color: var(--gold); }
+</style>
+</head>
+<body>
+
+<div class="starfield"></div>
+
+<div class="top-bar">
+  <a href="Arcana.html" class="back-link">← Volver a Arcana</a>
+  <div class="top-mark">
+    <span class="top-mark-icon">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M10 2 L14 6 L10 10 L6 6 Z" fill="currentColor" opacity="0.9"/>
+        <path d="M10 10 L14 14 L10 18 L6 14 Z" fill="currentColor" opacity="0.5"/>
+      </svg>
+    </span>
+    Arcana · Tarot
+  </div>
+</div>
+
+<nav class="side-nav">
+  <a href="#hero" data-label="Portada"></a>
+  <a href="#index" data-label="Índice"></a>
+  <a href="#note" data-label="Nota"></a>
+  <a href="#act-1" data-label="Acto I"></a>
+  <a href="#act-2" data-label="Acto II"></a>
+  <a href="#act-3" data-label="Acto III"></a>
+  <a href="#reverse" data-label="Reverso"></a>
+  <a href="#colophon" data-label="Colofón"></a>
+</nav>
+
+<div class="page">
+
+  <!-- ═══════════ HERO ═══════════ -->
+  <section class="hero" id="hero">
+    <div class="container">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">El mazo — edición completa</div>
+          <h1>Los veintidós<br><em>arcanos mayores</em></h1>
+          <p class="hero-kicker">Un mazo pensado para tomarse en serio. Grabado dorado sobre navy cósmico, iconografía Rider-Waite reinterpretada. Cada carta es un objeto, no un truco.</p>
+          <div class="hero-meta">
+            <div class="hero-meta-item"><span class="k">Cartas</span><span class="v">22 + reverso</span></div>
+            <div class="hero-meta-item"><span class="k">Formato</span><span class="v">2:3 · 1696×2528</span></div>
+            <div class="hero-meta-item"><span class="k">Sistema</span><span class="v">Rider-Waite</span></div>
+            <div class="hero-meta-item"><span class="k">Versión</span><span class="v">v1.0 · 2026</span></div>
+          </div>
+        </div>
+        <div class="hero-card" data-card="0">
+          <img src="assets/cards/00-the-fool.jpg" alt="El Loco — carta 0, el viaje comienza">
+          <div class="hero-card-tag">0 · El Loco · el viaje comienza</div>
+        </div>
+      </div>
+    </div>
+    <div class="scroll-cue">Comenzar la lectura</div>
+  </section>
+
+  <!-- ═══════════ INDEX ═══════════ -->
+  <section class="index" id="index">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Sumario</span>
+        <h2>Índice de los <em>arcanos</em></h2>
+        <p class="sub">Veintidós láminas, tres actos, un solo viaje.</p>
+      </div>
+      <div class="index-list" id="index-list"><!-- populated by JS --></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ CURATOR NOTE ═══════════ -->
+  <section class="note" id="note">
+    <div class="container">
+      <div class="note-grid">
+        <div>
+          <span class="eyebrow" style="display:block; margin-bottom:20px;">Nota del sistema</span>
+          <h3 class="note-title">Grabado dorado<br>sobre <em>navy cósmico</em></h3>
+        </div>
+        <div class="note-body">
+          <p>Cada lámina se compuso como <em>una página iluminada</em>: fondo navy cósmico profundo, iconografía Rider-Waite reinterpretada en oro laminado, cielos cargados de estrellas menores.</p>
+          <p>El sistema privilegia la <em>gravedad sobre la novedad</em>. No hay neón, no hay ilustración amable. Hay una pieza pensada para durar en la mano y en la memoria.</p>
+          <div class="palette-strip">
+            <div class="swatch"><div class="swatch-chip" style="background:#050310"></div><div class="swatch-name">Navy</div><div class="swatch-hex">#050310</div></div>
+            <div class="swatch"><div class="swatch-chip" style="background:#14092e"></div><div class="swatch-name">Cósmico</div><div class="swatch-hex">#14092E</div></div>
+            <div class="swatch"><div class="swatch-chip" style="background:#5a3a8a"></div><div class="swatch-name">Púrpura</div><div class="swatch-hex">#5A3A8A</div></div>
+            <div class="swatch"><div class="swatch-chip" style="background:#d4a85a"></div><div class="swatch-name">Oro</div><div class="swatch-hex">#D4A85A</div></div>
+            <div class="swatch"><div class="swatch-chip" style="background:#f0e2c0"></div><div class="swatch-name">Crema</div><div class="swatch-hex">#F0E2C0</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ ACT I ═══════════ -->
+  <section class="act-opener" id="act-1">
+    <div class="container-narrow">
+      <div class="act-numeral">I</div>
+      <h2 class="act-title">El viaje <em>comienza</em></h2>
+      <p class="act-lede">De la inocencia del Loco al empuje del Carro. Ocho láminas para aprender a caminar en un mundo con reglas y con misterio.</p>
+      <div class="act-range">0 · 1 · 2 · 3 · 4 · 5 · 6 · 7</div>
+    </div>
+  </section>
+
+  <section class="act-body">
+    <div class="container">
+      <div id="act-1-body"><!-- entries injected --></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ ACT II ═══════════ -->
+  <section class="act-opener" id="act-2">
+    <div class="container-narrow">
+      <div class="act-numeral">II</div>
+      <h2 class="act-title">El encuentro <em>con uno mismo</em></h2>
+      <p class="act-lede">De la Fuerza que se doma a la Templanza que reconcilia. Siete láminas para lo que solo se aprende a solas.</p>
+      <div class="act-range">VIII · IX · X · XI · XII · XIII · XIV</div>
+    </div>
+  </section>
+
+  <section class="act-body">
+    <div class="container">
+      <div id="act-2-body"></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ ACT III ═══════════ -->
+  <section class="act-opener" id="act-3">
+    <div class="container-narrow">
+      <div class="act-numeral">III</div>
+      <h2 class="act-title">La <em>llegada</em>, el mundo</h2>
+      <p class="act-lede">Del Diablo al Mundo. Siete láminas para lo que queda cuando se ha caminado el camino entero.</p>
+      <div class="act-range">XV · XVI · XVII · XVIII · XIX · XX · XXI</div>
+    </div>
+  </section>
+
+  <section class="act-body">
+    <div class="container">
+      <div id="act-3-body"></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ THE BACK ═══════════ -->
+  <section class="reverse" id="reverse">
+    <div class="container-narrow">
+      <div class="section-head" style="margin-bottom: 56px;">
+        <span class="eyebrow">El reverso</span>
+        <h2>El dorso <em>del mazo</em></h2>
+        <p class="sub">Idéntico en las setenta y ocho cartas.<br>La cara común, la que se ve antes de saber.</p>
+      </div>
+      <div class="reverse-card" data-card="back">
+        <img src="assets/cards/back.jpg" alt="Reverso del mazo">
+      </div>
+      <p style="font-family:'Cormorant Garamond',serif; font-style:italic; font-size:18px; color:var(--cream-dim); max-width:520px; margin:0 auto;">
+        Un patrón geométrico dorado sobre navy, sin marcas que delaten la carta que oculta. El reverso guarda el secreto hasta el instante de revelarlo.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════ COLOPHON ═══════════ -->
+  <section class="colophon" id="colophon">
+    <div class="container">
+      <div class="colophon-grid">
+        <div class="col-item"><div class="k">Sistema</div><div class="v">Rider-Waite reinterpretado</div></div>
+        <div class="col-item"><div class="k">Tipografías</div><div class="v"><em>Cinzel</em> · Cormorant Garamond</div></div>
+        <div class="col-item"><div class="k">Formato</div><div class="v">22 arcanos mayores · 2:3</div></div>
+        <div class="col-item"><div class="k">Generado</div><div class="v">Modelo generativo · IA</div></div>
+      </div>
+      <div class="col-mark">
+        <div class="col-mark-logo">ARCANA · TAROT</div>
+        <div class="col-mark-tag">Un mazo pensado para tomarse en serio.<br>Edición completa · Septiembre 2026</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ═══════════ LIGHTBOX ═══════════ -->
+<div class="lightbox" id="lb">
+  <button class="lb-close" id="lb-close">Cerrar · Esc</button>
+  <div class="lightbox-inner">
+    <img class="lb-card" id="lb-img" src="" alt="">
+    <div class="lb-info">
+      <span class="eyebrow" id="lb-num">0</span>
+      <h4 id="lb-title">The Fool</h4>
+      <div class="lb-es" id="lb-es">El Loco</div>
+      <div class="entry-keywords lb-kws" id="lb-kws"></div>
+      <p class="lb-quote" id="lb-quote"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ────────── card data ──────────
+  const CARDS = [
+    { n: 0,  roman: '0',    en: 'The Fool',            es: 'El Loco',              img: '00-the-fool.jpg',        kws: ['Comienzo', 'Inocencia', 'Salto'],                     quote: 'Toda partida es un acto de fe disfrazado de despiste.' },
+    { n: 1,  roman: 'I',    en: 'The Magician',        es: 'El Mago',              img: '01-the-magician.jpg',    kws: ['Voluntad', 'Manifestación', 'Habilidad'],             quote: 'Tienes en la mesa todo lo que necesitas. Falta decidirlo.' },
+    { n: 2,  roman: 'II',   en: 'The High Priestess',  es: 'La Sacerdotisa',       img: '02-high-priestess.jpg',  kws: ['Intuición', 'Umbral', 'Silencio'],                    quote: 'Confía en lo que sabes sin haberlo estudiado.' },
+    { n: 3,  roman: 'III',  en: 'The Empress',         es: 'La Emperatriz',        img: '03-the-empress.jpg',     kws: ['Abundancia', 'Cuidado', 'Fertilidad'],                quote: 'Crear no es esfuerzo, es hospitalidad hacia lo que quiere nacer.' },
+    { n: 4,  roman: 'IV',   en: 'The Emperor',         es: 'El Emperador',         img: '04-the-emperor.jpg',     kws: ['Estructura', 'Autoridad', 'Orden'],                   quote: 'La libertad sin arquitectura se disipa.' },
+    { n: 5,  roman: 'V',    en: 'The Hierophant',      es: 'El Hierofante',        img: '05-the-hierophant.jpg',  kws: ['Tradición', 'Enseñanza', 'Rito'],                     quote: 'Antes de romper la regla, aprende a escribirla.' },
+    { n: 6,  roman: 'VI',   en: 'The Lovers',          es: 'Los Enamorados',       img: '06-the-lovers.jpg',      kws: ['Elección', 'Unión', 'Valor'],                         quote: 'Amar es elegir dos veces: al otro, y al mundo con él dentro.' },
+    { n: 7,  roman: 'VII',  en: 'The Chariot',         es: 'El Carro',             img: '07-the-chariot.jpg',     kws: ['Voluntad', 'Dirección', 'Triunfo'],                   quote: 'Manda a las bestias, o te llevarán a donde no querías.' },
+    { n: 8,  roman: 'VIII', en: 'Strength',            es: 'La Fuerza',            img: '08-strength.jpg',        kws: ['Coraje', 'Templanza', 'Domar'],                       quote: 'La fuerza que se demuestra ya no es fuerza. Es miedo con músculo.' },
+    { n: 9,  roman: 'IX',   en: 'The Hermit',          es: 'El Ermitaño',          img: '09-the-hermit.jpg',      kws: ['Soledad', 'Lámpara', 'Búsqueda'],                     quote: 'Hay luces que solo se encienden lejos del ruido.' },
+    { n: 10, roman: 'X',    en: 'Wheel of Fortune',    es: 'La Rueda de la Fortuna', img: '10-wheel-of-fortune.jpg', kws: ['Ciclo', 'Cambio', 'Destino'],                    quote: 'La rueda no premia ni castiga: gira. Aprende a montarla.' },
+    { n: 11, roman: 'XI',   en: 'Justice',             es: 'La Justicia',          img: '11-justice.jpg',         kws: ['Equilibrio', 'Verdad', 'Consecuencia'],               quote: 'Cada acto vuelve. La balanza no perdona ni olvida.' },
+    { n: 12, roman: 'XII',  en: 'The Hanged Man',      es: 'El Colgado',           img: '12-the-hanged-man.jpg',  kws: ['Suspensión', 'Rendición', 'Nueva mirada'],            quote: 'A veces la única forma de avanzar es quedarse quieto de otra manera.' },
+    { n: 13, roman: 'XIII', en: 'Death',               es: 'La Muerte',            img: '13-death.jpg',           kws: ['Fin', 'Transformación', 'Umbral'],                    quote: 'Lo que termina te libera de lo que llegó a serlo.' },
+    { n: 14, roman: 'XIV',  en: 'Temperance',          es: 'La Templanza',         img: '14-temperance.jpg',      kws: ['Mezcla', 'Paciencia', 'Alquimia'],                    quote: 'La mezcla justa toma tiempo. El tiempo también es un ingrediente.' },
+    { n: 15, roman: 'XV',   en: 'The Devil',           es: 'El Diablo',            img: '15-the-devil.jpg',       kws: ['Atadura', 'Sombra', 'Deseo'],                         quote: 'Las cadenas están sueltas. Nadie te dijo que podías mirarlas.' },
+    { n: 16, roman: 'XVI',  en: 'The Tower',           es: 'La Torre',             img: '16-the-tower.jpg',       kws: ['Ruptura', 'Revelación', 'Rayo'],                      quote: 'Se cae lo que no era tuyo. Duele igual, pero deja aire.' },
+    { n: 17, roman: 'XVII', en: 'The Star',            es: 'La Estrella',          img: '17-the-star.jpg',        kws: ['Esperanza', 'Inspiración', 'Serenidad'],              quote: 'Después de la tormenta, un cielo aprende a mirarte de vuelta.' },
+    { n: 18, roman: 'XVIII',en: 'The Moon',            es: 'La Luna',              img: '18-the-moon.jpg',        kws: ['Ilusión', 'Sueño', 'Misterio'],                       quote: 'No todo lo que brilla te habla claro. Camina despacio.' },
+    { n: 19, roman: 'XIX',  en: 'The Sun',             es: 'El Sol',               img: '19-the-sun.jpg',         kws: ['Alegría', 'Vitalidad', 'Claridad'],                   quote: 'Ser feliz también es un acto de valentía.' },
+    { n: 20, roman: 'XX',   en: 'Judgement',           es: 'El Juicio',            img: '20-judgement.jpg',       kws: ['Llamada', 'Despertar', 'Renacer'],                    quote: 'Cuando algo te llama por tu nombre, ya no puedes fingir sordera.' },
+    { n: 21, roman: 'XXI',  en: 'The World',           es: 'El Mundo',             img: '21-the-world.jpg',       kws: ['Integración', 'Cierre', 'Plenitud'],                  quote: 'Vuelves al punto de partida. La única diferencia eres tú.' },
+  ];
+
+  // ────────── INDEX ──────────
+  const idxHost = document.getElementById('index-list');
+  CARDS.forEach((c, i) => {
+    const a = document.createElement('a');
+    a.className = 'index-row';
+    a.href = `#card-${c.n}`;
+    a.innerHTML = `
+      <span class="idx-num">${c.roman}</span>
+      <span class="idx-name">${c.en}<em>${c.es}</em></span>
+      <span class="idx-page">·  ${String(i + 1).padStart(2, '0')}</span>
+    `;
+    idxHost.appendChild(a);
+  });
+
+  // ────────── ENTRIES ──────────
+  // Distribute cards into acts + assign layouts for rhythm.
+  // Layout pattern per act mixes A, A-reverse, B (hero), C (pair).
+  const ACT_1 = [0, 1, 2, 3, 4, 5, 6, 7];
+  const ACT_2 = [8, 9, 10, 11, 12, 13, 14];
+  const ACT_3 = [15, 16, 17, 18, 19, 20, 21];
+
+  // Specify layout per card number:
+  //   'a'        = card left, text right
+  //   'a-rev'    = card right, text left
+  //   'b'        = hero (centered, larger) — reserve for pivotal cards
+  //   'c:next'   = pair — combined with the NEXT card, single entry rendered here
+  //   'skip'     = already rendered as part of a pair
+  const LAYOUT = {
+    0:  'b',        // The Fool — hero (opens the journey)
+    1:  'a',
+    2:  'a-rev',
+    3:  'c:4',      // Empress + Emperor — pair
+    4:  'skip',
+    5:  'a',
+    6:  'a-rev',
+    7:  'b',        // The Chariot — hero (act closer)
+
+    8:  'a',
+    9:  'a-rev',
+    10: 'b',        // Wheel of Fortune — pivotal center of the deck
+    11: 'a',
+    12: 'a-rev',
+    13: 'b',        // Death — hero
+    14: 'a',
+
+    15: 'a-rev',
+    16: 'b',        // The Tower — hero
+    17: 'a',
+    18: 'c:19',     // Moon + Sun — natural pair
+    19: 'skip',
+    20: 'a-rev',
+    21: 'b',        // The World — final hero
+  };
+
+  function renderKeywords(kws) {
+    return kws.map(k => `<span class="kw">${k}</span>`).join('');
+  }
+
+  function renderEntry(card, layout) {
+    const src = `assets/cards/${card.img}`;
+    if (layout === 'a' || layout === 'a-rev') {
+      return `
+        <article class="entry entry-a ${layout === 'a-rev' ? 'reverse' : ''}" id="card-${card.n}">
+          <div class="entry-card" data-card="${card.n}">
+            <img src="${src}" alt="${card.en} · ${card.es}">
+          </div>
+          <div class="entry-copy">
+            <div class="entry-num">${card.roman} · Arcano Mayor</div>
+            <h3>${card.en}</h3>
+            <div class="entry-name-es">${card.es}</div>
+            <div class="entry-keywords">${renderKeywords(card.kws)}</div>
+            <p class="entry-quote">${card.quote}</p>
+          </div>
+        </article>
+      `;
+    }
+    if (layout === 'b') {
+      return `
+        <article class="entry entry-b" id="card-${card.n}">
+          <div class="entry-card" data-card="${card.n}">
+            <img src="${src}" alt="${card.en} · ${card.es}">
+          </div>
+          <div class="entry-copy">
+            <div class="entry-num">${card.roman} · Arcano Mayor</div>
+            <h3>${card.en}</h3>
+            <div class="entry-name-es">${card.es}</div>
+            <div class="entry-keywords">${renderKeywords(card.kws)}</div>
+            <p class="entry-quote">${card.quote}</p>
+          </div>
+        </article>
+      `;
+    }
+    return '';
+  }
+
+  function renderPair(a, b) {
+    return `
+      <article class="entry entry-c" id="card-${a.n}">
+        <div class="entry-card" data-card="${a.n}">
+          <img src="assets/cards/${a.img}" alt="${a.en} · ${a.es}">
+        </div>
+        <div class="entry-copy">
+          <div class="entry-num">${a.roman} · ${b.roman}</div>
+          <h3 style="font-size: clamp(24px, 2.5vw, 32px);">${a.en} <span style="color: var(--gold);">·</span> ${b.en}</h3>
+          <div class="entry-name-es">${a.es} y ${b.es}</div>
+          <div class="entry-keywords">
+            ${renderKeywords(a.kws.slice(0, 2))}
+            <span class="kw" style="border-color: var(--gold); color: var(--gold);">↔</span>
+            ${renderKeywords(b.kws.slice(0, 2))}
+          </div>
+          <p class="entry-quote" style="margin-top: 12px;">${a.quote}</p>
+          <p class="entry-quote" style="margin-top: 12px; border-color: rgba(212,168,90,0.4);">${b.quote}</p>
+        </div>
+        <div class="entry-card right" data-card="${b.n}" id="card-${b.n}">
+          <img src="assets/cards/${b.img}" alt="${b.en} · ${b.es}">
+        </div>
+      </article>
+    `;
+  }
+
+  function renderAct(actIds, hostId) {
+    let html = '';
+    for (const id of actIds) {
+      const layout = LAYOUT[id];
+      if (layout === 'skip') continue;
+      if (layout && layout.startsWith('c:')) {
+        const partnerId = parseInt(layout.split(':')[1], 10);
+        html += renderPair(CARDS[id], CARDS[partnerId]);
+      } else {
+        html += renderEntry(CARDS[id], layout || 'a');
+      }
+    }
+    document.getElementById(hostId).innerHTML = html;
+  }
+
+  renderAct(ACT_1, 'act-1-body');
+  renderAct(ACT_2, 'act-2-body');
+  renderAct(ACT_3, 'act-3-body');
+
+  // ────────── LIGHTBOX ──────────
+  const lb = document.getElementById('lb');
+  const lbImg = document.getElementById('lb-img');
+  const lbNum = document.getElementById('lb-num');
+  const lbTitle = document.getElementById('lb-title');
+  const lbEs = document.getElementById('lb-es');
+  const lbKws = document.getElementById('lb-kws');
+  const lbQuote = document.getElementById('lb-quote');
+  const lbClose = document.getElementById('lb-close');
+
+  function openCard(id) {
+    if (id === 'back') {
+      lbImg.src = 'assets/cards/back.jpg';
+      lbImg.alt = 'Reverso del mazo';
+      lbNum.textContent = 'Reverso';
+      lbTitle.textContent = 'Card Back';
+      lbEs.textContent = 'El dorso, idéntico en cada carta';
+      lbKws.innerHTML = renderKeywords(['Común', 'Secreto', 'Umbral']);
+      lbQuote.textContent = 'El reverso guarda la carta hasta el instante de revelarla.';
+    } else {
+      const c = CARDS[id];
+      lbImg.src = `assets/cards/${c.img}`;
+      lbImg.alt = `${c.en} · ${c.es}`;
+      lbNum.textContent = `${c.roman} · Arcano Mayor`;
+      lbTitle.textContent = c.en;
+      lbEs.textContent = c.es;
+      lbKws.innerHTML = renderKeywords(c.kws);
+      lbQuote.textContent = c.quote;
+    }
+    lb.classList.add('on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeCard() {
+    lb.classList.remove('on');
+    document.body.style.overflow = '';
+  }
+
+  document.body.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-card]');
+    if (target) openCard(target.dataset.card === 'back' ? 'back' : parseInt(target.dataset.card, 10));
+  });
+  lbClose.addEventListener('click', closeCard);
+  lb.addEventListener('click', (e) => { if (e.target === lb) closeCard(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCard(); });
+
+  // ────────── SIDE NAV — active state ──────────
+  const navLinks = document.querySelectorAll('.side-nav a');
+  const sections = ['hero','index','note','act-1','act-2','act-3','reverse','colophon']
+    .map(id => document.getElementById(id));
+  function updateNav() {
+    const y = window.scrollY + window.innerHeight * 0.35;
+    let activeIdx = 0;
+    sections.forEach((s, i) => { if (s && s.offsetTop <= y) activeIdx = i; });
+    navLinks.forEach((a, i) => a.classList.toggle('active', i === activeIdx));
+  }
+  window.addEventListener('scroll', updateNav, { passive: true });
+  updateNav();
+</script>
+
+</body>
+</html>

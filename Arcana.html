@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lux Astral — Tarot para quien pregunta con seriedad</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@daily-co/daily-js"></script>
+
+  <!-- Data (plain scripts) -->
+  <script src="src/data/i18n.js"></script>
+  <script src="src/data/cards.js"></script>
+  <script src="src/data/pdf.js"></script>
+  <script src="src/data/tarotists.js"></script>
+  <script src="src/data/profile.js"></script>
+  <script src="src/data/voice.js"></script>
+  <script src="src/data/merch.js"></script>
+  <script src="src/data/booking.js"></script>
+  <script>
+    window.__errors = [];
+    window.addEventListener('error', (e) => {
+      window.__errors.push({ msg: e.message, src: e.filename, line: e.lineno, col: e.colno });
+      const box = document.createElement('pre');
+      box.style.cssText = 'position:fixed;bottom:10px;left:10px;right:10px;max-height:200px;overflow:auto;background:#2a1030;color:#ffb;padding:12px;font-family:monospace;font-size:11px;z-index:9999;border:1px solid #d4a85a;border-radius:6px';
+      box.textContent = `[Arcana error] ${e.message}\n${e.filename}:${e.lineno}:${e.colno}`;
+      document.body.appendChild(box);
+    });
+  </script>
+
+  <!-- Components + Pages (JSX) -->
+  <script type="text/babel" src="src/components/Logo.jsx"></script>
+  <script type="text/babel" src="src/components/Starfield.jsx"></script>
+  <script type="text/babel" src="src/components/TarotCard.jsx"></script>
+  <script type="text/babel" src="src/components/Nav.jsx"></script>
+  <script type="text/babel" src="src/components/AuthModal.jsx"></script>
+  <script type="text/babel" src="src/components/tweaks_panel.jsx"></script>
+  <script type="text/babel" src="src/pages/Home.jsx"></script>
+  <script type="text/babel" src="src/pages/Readings.jsx"></script>
+  <script type="text/babel" src="src/pages/Reading.jsx"></script>
+  <script type="text/babel" src="src/pages/Library.jsx"></script>
+  <script type="text/babel" src="src/pages/OtherPages.jsx"></script>
+  <script type="text/babel" src="src/pages/Onboarding.jsx"></script>
+  <script type="text/babel" src="src/pages/Chat.jsx"></script>
+  <script type="text/babel" src="src/pages/VideoCall.jsx"></script>
+  <script type="text/babel" src="src/pages/About.jsx"></script>
+  <script type="text/babel" src="src/pages/Setup.jsx"></script>
+  <script type="text/babel" src="src/App.jsx"></script>
+
+  <script type="text/babel">
+    class ArcanaErrorBoundary extends React.Component {
+      constructor(props) { super(props); this.state = { error: null }; }
+      static getDerivedStateFromError(error) { return { error }; }
+      componentDidCatch(error, info) {
+        console.error('[Arcana] render error:', error, info);
+        window.__arcanaError = { message: error.message, stack: error.stack };
+      }
+      render() {
+        if (this.state.error) {
+          return (
+            <div style={{padding: 40, color: '#f0e2c0', fontFamily: 'monospace', fontSize: 13}}>
+              <h2 style={{color: '#d4a85a', fontFamily: 'Cinzel, serif', marginBottom: 16}}>An error occurred</h2>
+              <pre style={{whiteSpace: 'pre-wrap', background: '#1a1438', padding: 20, borderRadius: 8}}>
+                {this.state.error.message}{'\n\n'}{this.state.error.stack}
+              </pre>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    let mounted = false;
+    let tries = 0;
+    (function mount() {
+      tries++;
+      const needed = ['App','HomePage','ReadingPage','ReadingsPage','LibraryPage',
+        'ChartPage','MoonPage','MarketplacePage','PhilosophyPage','ProfilePage',
+        'PricingPage','OnboardingPage','ChatPage','VideoCallPage','AboutPage','SetupPage','MerchPage',
+        'Nav','Starfield','TarotCard','AuthModal','ArcanaLogo',
+        'TAROT_CARDS','I18N','TAROTISTS'];
+      const missing = needed.filter(k => !window[k]);
+      if (missing.length) {
+        if (tries > 200) {
+          document.getElementById('root').innerHTML =
+            '<div style="padding:40px;color:#f0e2c0;font-family:monospace">Missing: '+missing.join(', ')+'</div>';
+          return;
+        }
+        return setTimeout(mount, 100);
+      }
+      if (mounted) return;
+      mounted = true;
+      console.log('[Arcana] all deps present, mounting App');
+      try {
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ArcanaErrorBoundary><App /></ArcanaErrorBoundary>);
+        console.log('[Arcana] App rendered');
+      } catch (e) {
+        console.error('[Arcana] MOUNT ERROR:', e);
+        document.getElementById('root').innerHTML =
+          '<pre style="padding:40px;color:#f0e2c0;font-family:monospace;white-space:pre-wrap">MOUNT ERROR: '+e.message+'\n'+e.stack+'</pre>';
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcana — Los 22 Arcanos Mayores</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: radial-gradient(ellipse at top, #1a1240 0%, #0a0618 60%, #050310 100%);
+    min-height: 100vh;
+    color: #f0e2c0;
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    padding: 80px 40px 120px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Stars */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, #f0e2c0 0%, transparent 100%),
+      radial-gradient(1px 1px at 60% 70%, #d4a85a 0%, transparent 100%),
+      radial-gradient(1px 1px at 80% 20%, #f0e2c0 0%, transparent 100%),
+      radial-gradient(1px 1px at 30% 80%, #d4a85a 0%, transparent 100%),
+      radial-gradient(1px 1px at 90% 60%, #f0e2c0 0%, transparent 100%),
+      radial-gradient(1px 1px at 10% 50%, #d4a85a 0%, transparent 100%),
+      radial-gradient(1px 1px at 50% 15%, #f0e2c0 0%, transparent 100%),
+      radial-gradient(1px 1px at 70% 90%, #d4a85a 0%, transparent 100%);
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { max-width: 1600px; margin: 0 auto; position: relative; z-index: 1; }
+
+  header {
+    text-align: center;
+    margin-bottom: 96px;
+    padding-bottom: 48px;
+    border-bottom: 1px solid rgba(212, 168, 90, 0.2);
+  }
+
+  .eyebrow {
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    color: #d4a85a;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+
+  h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(48px, 6vw, 84px);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    margin-bottom: 20px;
+    color: #f0e2c0;
+  }
+
+  h1 em {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    color: #d4a85a;
+    font-weight: 400;
+  }
+
+  .kicker {
+    font-size: 18px;
+    line-height: 1.6;
+    max-width: 620px;
+    margin: 0 auto;
+    color: rgba(240, 226, 192, 0.7);
+    font-style: italic;
+  }
+
+  .meta-row {
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+    margin-top: 36px;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: rgba(212, 168, 90, 0.7);
+  }
+  .meta-row span::before {
+    content: '·';
+    margin-right: 8px;
+    color: #d4a85a;
+  }
+
+  /* Grid of cards */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 40px 32px;
+  }
+
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.4s ease;
+  }
+  .card:hover { transform: translateY(-8px); }
+
+  .card-frame {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 20px 40px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(212, 168, 90, 0.3),
+      inset 0 0 0 1px rgba(240, 226, 192, 0.08);
+    transition: box-shadow 0.4s ease;
+  }
+  .card:hover .card-frame {
+    box-shadow:
+      0 30px 60px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(212, 168, 90, 0.6),
+      0 0 40px rgba(212, 168, 90, 0.25);
+  }
+
+  .card-frame img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+
+  .card-caption {
+    margin-top: 20px;
+    text-align: center;
+  }
+  .card-num {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: #d4a85a;
+    opacity: 0.8;
+    margin-bottom: 6px;
+  }
+  .card-name {
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #f0e2c0;
+    line-height: 1.3;
+  }
+  .card-name-es {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: rgba(240, 226, 192, 0.5);
+    margin-top: 4px;
+  }
+
+  /* Section divider */
+  .section-title {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px 0 24px;
+  }
+  .section-title.first { padding-top: 0; }
+  .section-title-eyebrow {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.4em;
+    color: #d4a85a;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .section-title h2 {
+    font-family: 'Cinzel', serif;
+    font-size: 32px;
+    font-weight: 400;
+    color: #f0e2c0;
+    letter-spacing: -0.01em;
+  }
+  .section-title h2 em {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    color: #d4a85a;
+  }
+
+  /* Back card highlight */
+  .back-card { max-width: 320px; margin: 0 auto; }
+
+  footer {
+    margin-top: 120px;
+    padding-top: 48px;
+    border-top: 1px solid rgba(212, 168, 90, 0.2);
+    text-align: center;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: rgba(240, 226, 192, 0.4);
+    text-transform: uppercase;
+    line-height: 2;
+  }
+  footer strong { color: #d4a85a; font-weight: 500; }
+
+  /* Lightbox */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 3, 16, 0.94);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 40px;
+    cursor: zoom-out;
+    backdrop-filter: blur(20px);
+  }
+  .lightbox.on { display: flex; }
+  .lightbox img {
+    max-width: min(600px, 90vw);
+    max-height: 90vh;
+    border-radius: 16px;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.7), 0 0 60px rgba(212, 168, 90, 0.3);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Arcana · Sistema visual del mazo</div>
+    <h1>Los 22 arcanos<br><em>mayores</em></h1>
+    <p class="kicker">Un mazo pensado para tomarse en serio. Grabado dorado sobre navy cósmico, iconografía Rider-Waite reinterpretada. Cada carta es un objeto, no un truco.</p>
+    <div class="meta-row">
+      <span>22 cartas + reverso</span>
+      <span>2:3 · 1696 × 2528</span>
+      <span>generado con IA</span>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- Cards 0-VII: The Journey Begins -->
+    <div class="section-title first">
+      <div class="section-title-eyebrow">Parte I · 0 → VII</div>
+      <h2>El viaje <em>comienza</em></h2>
+    </div>
+
+    <div class="card" data-src="assets/cards/00-the-fool.jpg">
+      <div class="card-frame"><img src="assets/cards/00-the-fool.jpg" alt="The Fool"></div>
+      <div class="card-caption"><div class="card-num">0</div><div class="card-name">The Fool</div><div class="card-name-es">El Loco</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/01-the-magician.jpg">
+      <div class="card-frame"><img src="assets/cards/01-the-magician.jpg" alt="The Magician"></div>
+      <div class="card-caption"><div class="card-num">I</div><div class="card-name">The Magician</div><div class="card-name-es">El Mago</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/02-high-priestess.jpg">
+      <div class="card-frame"><img src="assets/cards/02-high-priestess.jpg" alt="High Priestess"></div>
+      <div class="card-caption"><div class="card-num">II</div><div class="card-name">The High Priestess</div><div class="card-name-es">La Sacerdotisa</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/03-the-empress.jpg">
+      <div class="card-frame"><img src="assets/cards/03-the-empress.jpg" alt="The Empress"></div>
+      <div class="card-caption"><div class="card-num">III</div><div class="card-name">The Empress</div><div class="card-name-es">La Emperatriz</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/04-the-emperor.jpg">
+      <div class="card-frame"><img src="assets/cards/04-the-emperor.jpg" alt="The Emperor"></div>
+      <div class="card-caption"><div class="card-num">IV</div><div class="card-name">The Emperor</div><div class="card-name-es">El Emperador</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/05-the-hierophant.jpg">
+      <div class="card-frame"><img src="assets/cards/05-the-hierophant.jpg" alt="The Hierophant"></div>
+      <div class="card-caption"><div class="card-num">V</div><div class="card-name">The Hierophant</div><div class="card-name-es">El Hierofante</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/06-the-lovers.jpg">
+      <div class="card-frame"><img src="assets/cards/06-the-lovers.jpg" alt="The Lovers"></div>
+      <div class="card-caption"><div class="card-num">VI</div><div class="card-name">The Lovers</div><div class="card-name-es">Los Enamorados</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/07-the-chariot.jpg">
+      <div class="card-frame"><img src="assets/cards/07-the-chariot.jpg" alt="The Chariot"></div>
+      <div class="card-caption"><div class="card-num">VII</div><div class="card-name">The Chariot</div><div class="card-name-es">El Carro</div></div>
+    </div>
+
+    <!-- Cards VIII-XIV: The Descent -->
+    <div class="section-title">
+      <div class="section-title-eyebrow">Parte II · VIII → XIV</div>
+      <h2>El <em>encuentro</em> con uno mismo</h2>
+    </div>
+
+    <div class="card" data-src="assets/cards/08-strength.jpg">
+      <div class="card-frame"><img src="assets/cards/08-strength.jpg" alt="Strength"></div>
+      <div class="card-caption"><div class="card-num">VIII</div><div class="card-name">Strength</div><div class="card-name-es">La Fuerza</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/09-the-hermit.jpg">
+      <div class="card-frame"><img src="assets/cards/09-the-hermit.jpg" alt="The Hermit"></div>
+      <div class="card-caption"><div class="card-num">IX</div><div class="card-name">The Hermit</div><div class="card-name-es">El Ermitaño</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/10-wheel-of-fortune.jpg">
+      <div class="card-frame"><img src="assets/cards/10-wheel-of-fortune.jpg" alt="Wheel of Fortune"></div>
+      <div class="card-caption"><div class="card-num">X</div><div class="card-name">Wheel of Fortune</div><div class="card-name-es">La Rueda de la Fortuna</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/11-justice.jpg">
+      <div class="card-frame"><img src="assets/cards/11-justice.jpg" alt="Justice"></div>
+      <div class="card-caption"><div class="card-num">XI</div><div class="card-name">Justice</div><div class="card-name-es">La Justicia</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/12-the-hanged-man.jpg">
+      <div class="card-frame"><img src="assets/cards/12-the-hanged-man.jpg" alt="The Hanged Man"></div>
+      <div class="card-caption"><div class="card-num">XII</div><div class="card-name">The Hanged Man</div><div class="card-name-es">El Colgado</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/13-death.jpg">
+      <div class="card-frame"><img src="assets/cards/13-death.jpg" alt="Death"></div>
+      <div class="card-caption"><div class="card-num">XIII</div><div class="card-name">Death</div><div class="card-name-es">La Muerte</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/14-temperance.jpg">
+      <div class="card-frame"><img src="assets/cards/14-temperance.jpg" alt="Temperance"></div>
+      <div class="card-caption"><div class="card-num">XIV</div><div class="card-name">Temperance</div><div class="card-name-es">La Templanza</div></div>
+    </div>
+
+    <!-- Cards XV-XXI: The Return -->
+    <div class="section-title">
+      <div class="section-title-eyebrow">Parte III · XV → XXI</div>
+      <h2>La <em>llegada</em>, el mundo</h2>
+    </div>
+
+    <div class="card" data-src="assets/cards/15-the-devil.jpg">
+      <div class="card-frame"><img src="assets/cards/15-the-devil.jpg" alt="The Devil"></div>
+      <div class="card-caption"><div class="card-num">XV</div><div class="card-name">The Devil</div><div class="card-name-es">El Diablo</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/16-the-tower.jpg">
+      <div class="card-frame"><img src="assets/cards/16-the-tower.jpg" alt="The Tower"></div>
+      <div class="card-caption"><div class="card-num">XVI</div><div class="card-name">The Tower</div><div class="card-name-es">La Torre</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/17-the-star.jpg">
+      <div class="card-frame"><img src="assets/cards/17-the-star.jpg" alt="The Star"></div>
+      <div class="card-caption"><div class="card-num">XVII</div><div class="card-name">The Star</div><div class="card-name-es">La Estrella</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/18-the-moon.jpg">
+      <div class="card-frame"><img src="assets/cards/18-the-moon.jpg" alt="The Moon"></div>
+      <div class="card-caption"><div class="card-num">XVIII</div><div class="card-name">The Moon</div><div class="card-name-es">La Luna</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/19-the-sun.jpg">
+      <div class="card-frame"><img src="assets/cards/19-the-sun.jpg" alt="The Sun"></div>
+      <div class="card-caption"><div class="card-num">XIX</div><div class="card-name">The Sun</div><div class="card-name-es">El Sol</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/20-judgement.jpg">
+      <div class="card-frame"><img src="assets/cards/20-judgement.jpg" alt="Judgement"></div>
+      <div class="card-caption"><div class="card-num">XX</div><div class="card-name">Judgement</div><div class="card-name-es">El Juicio</div></div>
+    </div>
+    <div class="card" data-src="assets/cards/21-the-world.jpg">
+      <div class="card-frame"><img src="assets/cards/21-the-world.jpg" alt="The World"></div>
+      <div class="card-caption"><div class="card-num">XXI</div><div class="card-name">The World</div><div class="card-name-es">El Mundo</div></div>
+    </div>
+
+    <!-- Reverso -->
+    <div class="section-title">
+      <div class="section-title-eyebrow">El reverso</div>
+      <h2>El <em>dorso</em> del mazo</h2>
+    </div>
+
+    <div class="card back-card" data-src="assets/cards/back.jpg" style="grid-column: 1 / -1;">
+      <div class="card-frame" style="max-width: 320px; margin: 0 auto;"><img src="assets/cards/back.jpg" alt="Card back"></div>
+      <div class="card-caption"><div class="card-num">×78</div><div class="card-name">Card Back</div><div class="card-name-es">El reverso · idéntico en cada carta</div></div>
+    </div>
+
+  </div>
+
+  <footer>
+    <div><strong>Arcana Tarot</strong> · Los 22 Arcanos Mayores</div>
+    <div>Grabado dorado sobre navy cósmico · Rider-Waite reinterpretado</div>
+    <div>Paleta: #0f0a24 · #d4a85a · #f0e2c0 · #5a3a8a</div>
+  </footer>
+
+</div>
+
+<div class="lightbox" id="lb"><img id="lbi" src="" alt=""></div>
+
+<script>
+  const lb = document.getElementById('lb');
+  const lbi = document.getElementById('lbi');
+  document.querySelectorAll('.card').forEach(c => {
+    c.addEventListener('click', () => {
+      lbi.src = c.dataset.src;
+      lb.classList.add('on');
+    });
+  });
+  lb.addEventListener('click', () => lb.classList.remove('on'));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') lb.classList.remove('on'); });
+</script>
+</body>
+</html>

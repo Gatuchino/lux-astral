@@ -1,0 +1,11 @@
+node_modules/
+.netlify/
+.env
+data/
+Claude outputs/
+_to_delete/
+screenshots/
+design_handoff_arcana_tarot/
+*.srcmap.json
+*.v1.jsx.bak
+.thumbnail.jpg
