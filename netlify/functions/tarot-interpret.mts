@@ -78,9 +78,9 @@ async function handler(req: Request, context: any) {
   }
 
   // ---- Modo "start" ----
-  const { prompt, maxTokens, model, provider, ticketId, isFollowUp } = payload || {};
-  if (!prompt || typeof prompt !== "string") {
-    return new Response(JSON.stringify({ error: 'Falta "prompt" en el body.' }), { status: 400 });
+  const { prompts, maxTokensList, model, provider, ticketId, isFollowUp } = payload || {};
+  if (!Array.isArray(prompts) || prompts.length === 0 || !prompts.every((p: any) => typeof p === "string" && p)) {
+    return new Response(JSON.stringify({ error: 'Falta "prompts" (array) en el body.' }), { status: 400 });
   }
   const ticketCheck = await consumeReadingTicket(ticketId, !!isFollowUp);
   if (!ticketCheck.ok) {
@@ -91,11 +91,13 @@ async function handler(req: Request, context: any) {
   await jobsStore().setJSON(jobId, { status: "pending", createdAt: Date.now() });
 
   try {
+    // Las N partes (1 si no hay division en grupos) se generan en paralelo
+    // dentro de la Background Function -- ver tarot-generate-background.mts.
     const bgUrl = new URL("/.netlify/functions/tarot-generate-background", req.url).toString();
     await fetch(bgUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jobId, prompt, maxTokens, model, provider }),
+      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider }),
     });
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {

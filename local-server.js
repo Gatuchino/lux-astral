@@ -172,10 +172,10 @@ async function handleInterpret(req, res) {
     }
 
     // ---- Modo "start" ----
-    const { prompt, maxTokens, model, provider, ticketId, isFollowUp } = payload || {};
-    if (!prompt || typeof prompt !== 'string') {
+    const { prompts, maxTokensList, model, provider, ticketId, isFollowUp } = payload || {};
+    if (!Array.isArray(prompts) || prompts.length === 0 || !prompts.every((p) => typeof p === 'string' && p)) {
       res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Falta "prompt".' }));
+      res.end(JSON.stringify({ error: 'Falta "prompts" (array).' }));
       return;
     }
     // 2026-09-08: nunca se gasta un llamado a la IA sin haber pasado antes
@@ -214,8 +214,14 @@ async function handleInterpret(req, res) {
     localInterpretJobs.set(jobId, { status: 'pending', createdAt: Date.now() });
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ jobId }));
+    // Si vino mas de un prompt (lectura Tipo 3/4/5 dividida en grupos), se
+    // generan en paralelo y se unen en orden -- mismo contrato que
+    // tarot-generate-background.mts en produccion.
     try {
-      const text = await prov.call(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
+      const texts = await Promise.all(
+        prompts.map((p, i) => prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey))
+      );
+      const text = texts.map((t) => (t || '').trim()).filter(Boolean).join('\n\n');
       localInterpretJobs.set(jobId, { status: 'done', text, createdAt: Date.now() });
     } catch (e) {
       console.error('[tarot-interpret]', providerId, chosenModel, e.status || '', e.detail || e.message || e);

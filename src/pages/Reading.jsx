@@ -1054,7 +1054,18 @@ function formatDate(date, lang) {
 // velocidad y trayectoria, más un cometa ocasional y el isotipo Luna-Estrella respirando
 // en el centro con el texto de estado rotando. Todo se genera al azar en cada montaje
 // (cada vez que arranca una interpretación), así ninguna espera se ve igual a otra.
-const ASTRAL_PHRASE_KEYS = ['astral_status_1', 'astral_status_2', 'astral_status_3', 'astral_status_4'];
+const ASTRAL_PHRASE_KEYS = [
+  'astral_status_1', 'astral_status_2', 'astral_status_3', 'astral_status_4',
+  'astral_status_5', 'astral_status_6', 'astral_status_7', 'astral_status_8',
+];
+// Umbrales (segundos) a partir de los cuales aparece una línea extra de
+// paciencia debajo de la frase rotativa -- las lecturas Tipo 3/4/5 pueden
+// tardar bastante más que el ciclo normal de frases, y sin esto la espera
+// se siente "colgada" aunque el sondeo (poll) siga funcionando bien.
+const ASTRAL_WAIT_TIERS = [
+  { afterSec: 18, key: 'astral_wait_1' },
+  { afterSec: 45, key: 'astral_wait_2' },
+];
 const ASTRAL_SWAY_KEYS = ['A', 'B', 'C', 'D'];
 const ASTRAL_KINDS = ['star8', 'star8', 'star4', 'moon']; // más estrellas que lunas
 
@@ -1119,12 +1130,16 @@ function AstralRain({ lang, t }) {
   const particles = React.useMemo(() => generateAstralParticles(), []);
   const [comets, setComets] = React.useState([]);
   const [phraseIdx, setPhraseIdx] = React.useState(0);
+  const [elapsedSec, setElapsedSec] = React.useState(0);
 
   React.useEffect(() => {
     let cancelled = false;
     const phraseTimer = setInterval(() => {
       setPhraseIdx((i) => (i + 1) % ASTRAL_PHRASE_KEYS.length);
-    }, 2800);
+    }, 3400);
+    const elapsedTimer = setInterval(() => {
+      setElapsedSec((s) => s + 1);
+    }, 1000);
 
     let cometTimer = null;
     function scheduleComet() {
@@ -1139,8 +1154,11 @@ function AstralRain({ lang, t }) {
     }
     scheduleComet();
 
-    return () => { cancelled = true; clearInterval(phraseTimer); if (cometTimer) clearTimeout(cometTimer); };
+    return () => { cancelled = true; clearInterval(phraseTimer); clearInterval(elapsedTimer); if (cometTimer) clearTimeout(cometTimer); };
   }, []);
+
+  // Elige la línea de paciencia más "avanzada" cuyo umbral ya se cumplió.
+  const waitTier = ASTRAL_WAIT_TIERS.reduce((acc, tier) => (elapsedSec >= tier.afterSec ? tier : acc), null);
 
   return (
     <div className="astral-rain">
@@ -1172,6 +1190,7 @@ function AstralRain({ lang, t }) {
       <div className="astral-rain-center">
         <img src="assets/logo-mark.png" alt="" className="astral-rain-logo" />
         <div className="astral-rain-status italic">{t[ASTRAL_PHRASE_KEYS[phraseIdx]]}</div>
+        {waitTier && <div className="astral-rain-wait italic">{t[waitTier.key]}</div>}
       </div>
     </div>
   );
@@ -1319,12 +1338,35 @@ async function startJob(body, fallbackErrorMessage) {
   return pollJob(data.jobId);
 }
 
+// Tipo 3/4/5 (lecturas largas) tardaban demasiado en una sola llamada
+// secuencial. Para acortar la espera REAL (no solo la percibida), se
+// dividen las cartas en 2 o 3 grupos que se generan en PARALELO (la
+// Background Function los corre con Promise.all) y se unen en orden.
+// Se pierde algo de fluidez narrativa entre grupos (cada uno no ve lo que
+// escribió el otro), pero el tiempo baja a más o menos la mitad o un
+// tercio. Tipo 1/2 no se dividen: ya son rápidos de una sola.
+const RT_SPLIT_WORD_TARGET = { '3': 700, '4': 900, '5': 1400 };
+
+function splitCardsIntoGroups(count, groupCount) {
+  const base = Math.floor(count / groupCount);
+  const extra = count % groupCount;
+  const ranges = [];
+  let start = 0;
+  for (let i = 0; i < groupCount; i++) {
+    const size = base + (i < extra ? 1 : 0);
+    if (size > 0) ranges.push([start, start + size]);
+    start += size;
+  }
+  return ranges;
+}
+
 async function requestLLMInterpretation({ picked, positions, lang, question, spread, angle, responseType, ticketId }) {
   const RT = RESPONSE_TYPES[responseType] || RESPONSE_TYPES['1'];
   const profile = (window.getArcanaProfile && window.getArcanaProfile()) || { name: null, gender: null };
   const genderLine = window.arcanaGenderInstruction ? window.arcanaGenderInstruction(profile.gender, lang) : '';
   const nameLine = window.arcanaNameInstruction ? window.arcanaNameInstruction(profile.name, lang) : '';
-  const cardsList = picked.map((p, i) => {
+
+  const cardDetailLine = (p, i) => {
     const name = lang === 'es' ? p.card.name_es : p.card.name_en;
     const meaning = lang === 'es'
       ? (p.reversed ? p.card.reversed_es : p.card.upright_es)
@@ -1334,13 +1376,29 @@ async function requestLLMInterpretation({ picked, positions, lang, question, spr
       ? (lang === 'es' ? 'invertida' : 'reversed')
       : (lang === 'es' ? 'al derecho' : 'upright');
     return `- Posición ${i + 1} (${positions[i]}): ${name} — ${orientation}. Palabras clave: ${kw}. Significado base: ${meaning}`;
-  }).join('\n');
+  };
+  const cardBriefLine = (p, i) => {
+    const name = lang === 'es' ? p.card.name_es : p.card.name_en;
+    const orientation = p.reversed
+      ? (lang === 'es' ? 'invertida' : 'reversed')
+      : (lang === 'es' ? 'al derecho' : 'upright');
+    return `${positions[i]}: ${name} (${orientation})`;
+  };
 
+  const cardsList = picked.map(cardDetailLine).join('\n');
   const angleLine_es = angle ? `Esta vez, dale un tono ${angle}.` : '';
   const angleLine_en = angle ? `This time, give it a ${angle} tone.` : '';
 
-  const prompt = lang === 'es'
-    ? `Eres una persona experta en tarot, con voz cálida, honesta y algo poética. Escribes en español, en segunda persona ("tú"). Nada de emoji. Nada de titulares tipo "Introducción". Habla como quien conversa después de una taza de té. ${genderLine} ${nameLine}
+  const model = localStorage.getItem('arcana_setup_model') || undefined;
+  const provider = localStorage.getItem('arcana_setup_provider') || undefined;
+
+  const wordTarget = RT_SPLIT_WORD_TARGET[responseType];
+  const maxGroupsForType = responseType === '5' ? 3 : (wordTarget ? 2 : 1);
+  const groupCount = wordTarget ? Math.max(1, Math.min(picked.length, maxGroupsForType)) : 1;
+
+  if (groupCount <= 1) {
+    const prompt = lang === 'es'
+      ? `Eres una persona experta en tarot, con voz cálida, honesta y algo poética. Escribes en español, en segunda persona ("tú"). Nada de emoji. Nada de titulares tipo "Introducción". Habla como quien conversa después de una taza de té. ${genderLine} ${nameLine}
 
 Quien consulta hizo esta pregunta: ${question ? `"${question}"` : 'una pregunta silenciosa (sin especificar)'}
 
@@ -1350,7 +1408,7 @@ ${cardsList}
 ${RT.instr_es}
 
 ${angleLine_es}`
-    : `You are an expert tarot reader with a warm, honest, slightly poetic voice. You write in English, in second person ("you"). No emoji. No section headings. Speak like someone conversing after a cup of tea.
+      : `You are an expert tarot reader with a warm, honest, slightly poetic voice. You write in English, in second person ("you"). No emoji. No section headings. Speak like someone conversing after a cup of tea.
 
 The querent asked: ${question ? `"${question}"` : 'a silent question (unspecified)'}
 
@@ -1361,10 +1419,73 @@ ${RT.instr_en}
 
 ${angleLine_en}`;
 
-  const model = localStorage.getItem('arcana_setup_model') || undefined;
-  const provider = localStorage.getItem('arcana_setup_provider') || undefined;
+    return startJob(
+      { prompts: [prompt], maxTokensList: [RT.maxTokens], model, provider, ticketId, isFollowUp: false },
+      'llm request failed'
+    );
+  }
+
+  // ---- Modo dividido en grupos (paralelo) ----
+  const briefList = picked.map(cardBriefLine).join(' · ');
+  const ranges = splitCardsIntoGroups(picked.length, groupCount);
+  const perGroupWords = Math.ceil(wordTarget / ranges.length);
+  const perGroupMaxTokens = Math.max(500, Math.ceil((RT.maxTokens / ranges.length) * 1.3));
+
+  const prompts = ranges.map(([start, end], gi) => {
+    const isFirst = gi === 0;
+    const isLast = gi === ranges.length - 1;
+    const groupCardsList = picked.slice(start, end).map((p, idx) => cardDetailLine(p, start + idx)).join('\n');
+
+    const roleInstr_es = [
+      isFirst
+        ? 'Empezá con un párrafo breve de apertura que conecte con la pregunta antes de entrar en las cartas.'
+        : 'No repitas ni resumas la tirada completa: seguí directamente con las cartas que te tocan, como si fuera la continuación natural de lo ya dicho.',
+      `Desarrollá en profundidad SOLO estas cartas (las demás las cubre otra parte de la lectura):\n${groupCardsList}`,
+      isLast
+        ? (RT.allowExtraCards
+            ? 'Cerrá con un párrafo de conclusión que una todo. Si sentís que hace falta más contexto, podés invitar con calidez a quien consulta a contarte más o a sacar una carta más.'
+            : 'Cerrá con un párrafo breve de conclusión que una todo.')
+        : '',
+      `Aproximadamente ${perGroupWords} palabras para esta parte. No menciones que la lectura está dividida en partes -- escribí con fluidez, como si fuera un único texto continuo.`,
+    ].filter(Boolean).join('\n');
+
+    const roleInstr_en = [
+      isFirst
+        ? 'Start with a brief opening paragraph connecting to the question before getting into the cards.'
+        : "Don't repeat or re-summarize the whole spread: continue directly with your assigned cards, as the natural continuation of what's already been said.",
+      `Develop ONLY these cards in depth (the others are covered by another part of the reading):\n${groupCardsList}`,
+      isLast
+        ? (RT.allowExtraCards
+            ? 'Close with a concluding paragraph that ties it all together. If you feel more context is needed, you may warmly invite the querent to share more or draw one more card.'
+            : 'Close with a brief concluding paragraph that ties it all together.')
+        : '',
+      `About ${perGroupWords} words for this part. Do not mention that the reading is split into parts -- write fluidly, as if it were a single continuous text.`,
+    ].filter(Boolean).join('\n');
+
+    return lang === 'es'
+      ? `Eres una persona experta en tarot, con voz cálida, honesta y algo poética. Escribes en español, en segunda persona ("tú"). Nada de emoji. Nada de titulares. Habla como quien conversa después de una taza de té. ${genderLine} ${nameLine}
+
+Quien consulta hizo esta pregunta: ${question ? `"${question}"` : 'una pregunta silenciosa (sin especificar)'}
+
+Tirada completa (${spread}), para que tengas el contexto general: ${briefList}
+
+${roleInstr_es}
+
+${angleLine_es}`
+      : `You are an expert tarot reader with a warm, honest, slightly poetic voice. You write in English, in second person ("you"). No emoji. No headings. Speak like someone conversing after a cup of tea.
+
+The querent asked: ${question ? `"${question}"` : 'a silent question (unspecified)'}
+
+Full spread (${spread}), for overall context: ${briefList}
+
+${roleInstr_en}
+
+${angleLine_en}`;
+  });
+
+  const maxTokensList = prompts.map(() => perGroupMaxTokens);
   return startJob(
-    { prompt, maxTokens: RT.maxTokens, model, provider, ticketId, isFollowUp: false },
+    { prompts, maxTokensList, model, provider, ticketId, isFollowUp: false },
     'llm request failed'
   );
 }
@@ -1417,7 +1538,7 @@ Reply as the same reader, in 1 to 3 paragraphs, warm, honest and specific to the
   const model = localStorage.getItem('arcana_setup_model') || undefined;
   const provider = localStorage.getItem('arcana_setup_provider') || undefined;
   return startJob(
-    { prompt, maxTokens: 900, model, provider, ticketId, isFollowUp: true },
+    { prompts: [prompt], maxTokensList: [900], model, provider, ticketId, isFollowUp: true },
     'follow-up request failed'
   );
 }
@@ -2190,6 +2311,20 @@ function ReadingStyles() {
         letter-spacing: 0.02em;
         min-height: 26px;
         text-align: center;
+      }
+      .astral-rain-wait {
+        color: var(--ink-soft);
+        opacity: 0.72;
+        font-family: 'Cormorant Garamond', serif;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+        text-align: center;
+        max-width: 320px;
+        animation: astralWaitFade 0.8s ease-out;
+      }
+      @keyframes astralWaitFade {
+        0% { opacity: 0; transform: translateY(4px); }
+        100% { opacity: 0.72; transform: translateY(0); }
       }
 
       @media (max-width: 900px) {

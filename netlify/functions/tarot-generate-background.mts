@@ -113,8 +113,8 @@ export default async (req: Request, context: any) => {
   } catch (e) {
     return; // el llamador no lee esta respuesta -- ver comentario arriba
   }
-  const { jobId, prompt, maxTokens, model, provider } = payload || {};
-  if (!jobId || !prompt) return;
+  const { jobId, prompts, maxTokensList, model, provider } = payload || {};
+  if (!jobId || !Array.isArray(prompts) || prompts.length === 0) return;
 
   const providerId = provider && PROVIDERS[provider] ? provider : "anthropic";
   const prov = PROVIDERS[providerId];
@@ -129,8 +129,16 @@ export default async (req: Request, context: any) => {
   }
   const chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
 
+  // Si vino mas de un prompt (lectura Tipo 3/4/5 dividida en grupos para
+  // acortar la espera), se generan en PARALELO y se unen en orden -- ver
+  // Reading.jsx (requestLLMInterpretation) para como se arman los grupos.
   try {
-    const text = await prov.call(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
+    const texts = await Promise.all(
+      prompts.map((p: string, i: number) =>
+        prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey)
+      )
+    );
+    const text = texts.map((t) => (t || "").trim()).filter(Boolean).join("\n\n");
     await jobsStore().setJSON(jobId, { status: "done", text, createdAt: Date.now() });
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {
