@@ -290,13 +290,17 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
     setThinking(true);
     const base = buildBaseInterpretation({ picked, positions, lang, question });
     try {
-      const llmText = await requestLLMInterpretation({ picked, positions, lang, question, spread, angle, responseType, ticketId });
-      setInterpretation({ base, llm: llmText, error: null });
+      const llmTextRaw = await requestLLMInterpretation({ picked, positions, lang, question, spread, angle, responseType, ticketId });
+      // La IA puede haber citado un ícono del banco al final ([[icon: id]])
+      // -- se saca del texto visible y se resuelve a un ícono real (o a un
+      // respaldo automático por palo). Ver resolveReadingIcon más abajo.
+      const { cleanText, iconId } = resolveReadingIcon(llmTextRaw, picked);
+      setInterpretation({ base, llm: cleanText, error: null, iconId });
     } catch (e) {
       // No tragarnos el error: si la IA falla mostramos por qué en vez de
       // fingir que el resumen de respaldo (base) es la interpretación real.
       const msg = (e && e.message) || (lang === 'es' ? 'Error desconocido.' : 'Unknown error.');
-      setInterpretation({ base, llm: null, error: msg });
+      setInterpretation({ base, llm: null, error: msg, iconId: null });
     } finally {
       setThinking(false);
     }
@@ -747,6 +751,7 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
             {interpretation && !thinking && (
               <>
                 <ReadingSigil picked={picked} />
+                <ReadingIconBadge iconId={interpretation.iconId} />
                 <div className="reveal-interp-grid">
                   <ReadingCardRail picked={picked} positions={positions} lang={lang} />
                   <div className="reveal-interp-body">
@@ -1303,6 +1308,74 @@ function ReadingSignature() {
   );
 }
 
+// ---------- Banco de íconos elegidos por la IA (ver src/data/reading-icons.js) ----------
+// La IA nunca genera imágenes: solo ELIGE una de un banco ya diseñado y
+// guardado en el proyecto, citando su id al final de su respuesta. Cero
+// costo/latencia extra -- si no hay íconos cargados todavía (banco
+// vacío) o la IA no elige ninguno, no se muestra nada.
+
+function readingIconCatalogText() {
+  const icons = window.READING_ICONS || [];
+  if (!icons.length) return null;
+  return icons.map((ic) => `- ${ic.id}: ${ic.tags}`).join('\n');
+}
+
+// Instrucción para que la IA cierre su respuesta citando un ícono del
+// banco. Se agrega solo a UNA llamada por lectura (la única, o la última
+// parte cuando la lectura se generó en grupos) para no recibir varias
+// citas contradictorias.
+function readingIconPromptInstruction(lang) {
+  const catalog = readingIconCatalogText();
+  if (!catalog) return '';
+  return lang === 'es'
+    ? `\n\nAl final de tu respuesta, en una línea aparte y sin nada más en esa línea, elegí UN ícono de esta lista que mejor represente la energía general de TODA la lectura (no de una carta puntual) y escribilo exactamente así: [[icon: id-del-icono]]. Si de verdad ninguno encaja, no escribas esa línea.\n\nÍconos disponibles:\n${catalog}`
+    : `\n\nAt the end of your response, on its own line with nothing else on it, pick ONE icon from this list that best represents the overall energy of the WHOLE reading (not a single card) and write it exactly like this: [[icon: icon-id]]. If truly none of them fit, don't write that line.\n\nAvailable icons:\n${catalog}`;
+}
+
+// Saca el tag [[icon: id]] del texto final (si la IA lo escribió) y
+// resuelve el ícono real a mostrar. Si no hay tag, o cita un id que no
+// existe, se elige un respaldo automático según el palo dominante de la
+// tirada -- así nunca queda "a medias" ni se le pide más trabajo a la IA.
+function resolveReadingIcon(rawText, picked) {
+  const icons = window.READING_ICONS || [];
+  let cleanText = String(rawText || '');
+  let iconId = null;
+
+  if (icons.length) {
+    const match = cleanText.match(/\[\[\s*icon\s*:\s*([a-z0-9-]+)\s*\]\]/i);
+    if (match) {
+      const candidate = match[1].toLowerCase();
+      cleanText = (cleanText.slice(0, match.index) + cleanText.slice(match.index + match[0].length)).trim();
+      if (icons.some((ic) => ic.id === candidate)) iconId = candidate;
+    }
+    if (!iconId) {
+      const suitWords = { major: 'arcano mayor', cups: 'copas', pentacles: 'oros', swords: 'espadas', wands: 'bastos' };
+      const counts = {};
+      (picked || []).forEach((p) => {
+        const s = sigilSuitKey(p.card);
+        counts[s] = (counts[s] || 0) + 1;
+      });
+      const dominant = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+      const word = dominant && suitWords[dominant];
+      const found = word && icons.find((ic) => (ic.tags || '').toLowerCase().includes(word));
+      if (found) iconId = found.id;
+    }
+  }
+
+  return { cleanText, iconId };
+}
+
+function ReadingIconBadge({ iconId }) {
+  const icons = window.READING_ICONS || [];
+  const icon = iconId && icons.find((ic) => ic.id === iconId);
+  if (!icon) return null;
+  return (
+    <div className="reveal-icon-badge" aria-hidden="true">
+      <img src={icon.file} alt="" />
+    </div>
+  );
+}
+
 // Arma los <p> del cuerpo de la lectura, intercalando un divisor
 // ornamental entre las partes que se generaron por separado (en paralelo)
 // para lecturas largas -- así el "bloque de texto" se ve menos plano sin
@@ -1551,6 +1624,7 @@ async function requestLLMInterpretation({ picked, positions, lang, question, spr
   const groupCount = wordTarget ? Math.max(1, Math.min(picked.length, maxGroupsForType)) : 1;
 
   if (groupCount <= 1) {
+    const iconInstr = readingIconPromptInstruction(lang);
     const prompt = lang === 'es'
       ? `Eres una persona experta en tarot, con voz cálida, honesta y algo poética. Escribes en español, en segunda persona ("tú"). Nada de emoji. Nada de titulares tipo "Introducción". Habla como quien conversa después de una taza de té. ${genderLine} ${nameLine}
 
@@ -1561,7 +1635,7 @@ ${cardsList}
 
 ${RT.instr_es}
 
-${angleLine_es}`
+${angleLine_es}${iconInstr}`
       : `You are an expert tarot reader with a warm, honest, slightly poetic voice. You write in English, in second person ("you"). No emoji. No section headings. Speak like someone conversing after a cup of tea.
 
 The querent asked: ${question ? `"${question}"` : 'a silent question (unspecified)'}
@@ -1571,7 +1645,7 @@ ${cardsList}
 
 ${RT.instr_en}
 
-${angleLine_en}`;
+${angleLine_en}${iconInstr}`;
 
     return startJob(
       { prompts: [prompt], maxTokensList: [RT.maxTokens], model, provider, ticketId, isFollowUp: false },
@@ -1585,6 +1659,7 @@ ${angleLine_en}`;
   const perGroupWords = Math.ceil(wordTarget / ranges.length);
   const perGroupMaxTokens = Math.max(500, Math.ceil((RT.maxTokens / ranges.length) * 1.3));
 
+  const groupIconInstr = readingIconPromptInstruction(lang);
   const prompts = ranges.map(([start, end], gi) => {
     const isFirst = gi === 0;
     const isLast = gi === ranges.length - 1;
@@ -1616,6 +1691,7 @@ ${angleLine_en}`;
       `About ${perGroupWords} words for this part. Do not mention that the reading is split into parts -- write fluidly, as if it were a single continuous text.`,
     ].filter(Boolean).join('\n');
 
+    const iconInstr = isLast ? groupIconInstr : '';
     return lang === 'es'
       ? `Eres una persona experta en tarot, con voz cálida, honesta y algo poética. Escribes en español, en segunda persona ("tú"). Nada de emoji. Nada de titulares. Habla como quien conversa después de una taza de té. ${genderLine} ${nameLine}
 
@@ -1625,7 +1701,7 @@ Tirada completa (${spread}), para que tengas el contexto general: ${briefList}
 
 ${roleInstr_es}
 
-${angleLine_es}`
+${angleLine_es}${iconInstr}`
       : `You are an expert tarot reader with a warm, honest, slightly poetic voice. You write in English, in second person ("you"). No emoji. No headings. Speak like someone conversing after a cup of tea.
 
 The querent asked: ${question ? `"${question}"` : 'a silent question (unspecified)'}
@@ -1634,7 +1710,7 @@ Full spread (${spread}), for overall context: ${briefList}
 
 ${roleInstr_en}
 
-${angleLine_en}`;
+${angleLine_en}${iconInstr}`;
   });
 
   const maxTokensList = prompts.map(() => perGroupMaxTokens);
@@ -2220,6 +2296,17 @@ function ReadingStyles() {
         width: 176px;
         height: 176px;
         filter: drop-shadow(0 0 18px var(--gold-glow));
+      }
+      .reveal-icon-badge {
+        display: flex;
+        justify-content: center;
+        margin: -18px 0 24px;
+      }
+      .reveal-icon-badge img {
+        width: 42px;
+        height: 42px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 10px var(--gold-glow));
       }
       .reveal-signature {
         display: flex;
