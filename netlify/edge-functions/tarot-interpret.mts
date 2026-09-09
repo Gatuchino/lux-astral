@@ -78,26 +78,35 @@ async function streamAnthropic(prompt: string, maxTokens: number, model: string,
 
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        controller.close();
-        return;
-      }
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || ""; // la ultima linea puede venir incompleta
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const jsonStr = line.slice(6).trim();
-        if (!jsonStr) continue;
-        try {
-          const evt = JSON.parse(jsonStr);
-          if (evt.type === "content_block_delta" && evt.delta && evt.delta.type === "text_delta") {
-            controller.enqueue(encoder.encode(evt.delta.text));
-          }
-        } catch (e) {
-          // linea SSE incompleta o de un evento que no nos interesa -- se ignora
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
         }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // la ultima linea puede venir incompleta
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
+          try {
+            const evt = JSON.parse(jsonStr);
+            if (evt.type === "content_block_delta" && evt.delta && evt.delta.type === "text_delta") {
+              controller.enqueue(encoder.encode(evt.delta.text));
+            } else if (evt.type === "error") {
+              controller.enqueue(encoder.encode(`\n\n[ANTHROPIC_STREAM_ERROR: ${JSON.stringify(evt.error || evt)}]`));
+            }
+          } catch (parseErr) {
+            // linea SSE incompleta o de un evento que no nos interesa -- se ignora
+          }
+        }
+      } catch (pullErr: any) {
+        // No dejar que esto se convierta en un 500 opaco de la plataforma:
+        // metemos el error como texto visible en el propio stream.
+        controller.enqueue(encoder.encode(`\n\n[EDGE_STREAM_ERROR: ${String((pullErr && pullErr.stack) || (pullErr && pullErr.message) || pullErr)}]`));
+        controller.close();
       }
     },
     cancel() {
