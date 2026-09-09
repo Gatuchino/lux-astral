@@ -1268,6 +1268,32 @@ Be specific to the question. Don't just list the card names mechanically. Maximu
   },
 };
 
+// La edge function de tarot-interpret devuelve el texto como stream plano
+// (no como { text } en JSON) para poder mandar los headers de la
+// respuesta apenas arranca la generacion, sin esperar a que termine --
+// asi lecturas largas (Tipo 3/4/5) no chocan con ningun limite de tiempo
+// de la plataforma. Esta funcion junta el stream completo en un string,
+// con un respaldo por si el navegador no expone res.body como stream.
+async function readTextStream(res) {
+  if (res.body && typeof res.body.getReader === 'function') {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text.trim();
+  }
+  // Respaldo (navegadores viejos sin ReadableStream en fetch): tratar
+  // como texto plano de una.
+  const text = await res.text();
+  return text.trim();
+}
+
 async function requestLLMInterpretation({ picked, positions, lang, question, spread, angle, responseType, ticketId }) {
   const RT = RESPONSE_TYPES[responseType] || RESPONSE_TYPES['1'];
   const profile = (window.getArcanaProfile && window.getArcanaProfile()) || { name: null, gender: null };
@@ -1325,8 +1351,7 @@ ${angleLine_en}`;
     } catch (e) {}
     throw new Error(detail || 'llm request failed (' + res.status + ')');
   }
-  const data = await res.json();
-  return typeof data.text === 'string' ? data.text.trim() : '';
+  return readTextStream(res);
 }
 
 async function requestFollowUpReply({ picked, extraCards, positions, lang, question, spread, interpretation, followUps, newQuestion, responseType, ticketId }) {
@@ -1389,8 +1414,7 @@ Reply as the same reader, in 1 to 3 paragraphs, warm, honest and specific to the
     } catch (e) {}
     throw new Error(detail || 'follow-up request failed (' + res.status + ')');
   }
-  const data = await res.json();
-  return typeof data.text === 'string' ? data.text.trim() : '';
+  return readTextStream(res);
 }
 
 function buildShareText({ picked, positions, lang, question, spread, interpretation, t }) {

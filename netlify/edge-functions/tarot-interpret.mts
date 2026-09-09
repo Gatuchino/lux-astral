@@ -57,6 +57,55 @@ async function apiError(res: Response) {
   return err;
 }
 
+// Streaming real (SSE) para Anthropic -- evita esperar la respuesta
+// completa antes de empezar a responder. Los headers de la Response
+// salen apenas Anthropic confirma la conexion (rapido), y el cuerpo se
+// va llenando a medida que llegan los tokens: asi ni el limite de 40s de
+// headers de la edge function ni ningun limite de duracion total del
+// cuerpo entran en juego, sin importar cuanto tarde una lectura Tipo 5.
+async function streamAnthropic(prompt: string, maxTokens: number, model: string, apiKey: string): Promise<ReadableStream<Uint8Array>> {
+  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!upstream.ok || !upstream.body) throw await apiError(upstream);
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // la ultima linea puede venir incompleta
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr) continue;
+        try {
+          const evt = JSON.parse(jsonStr);
+          if (evt.type === "content_block_delta" && evt.delta && evt.delta.type === "text_delta") {
+            controller.enqueue(encoder.encode(evt.delta.text));
+          }
+        } catch (e) {
+          // linea SSE incompleta o de un evento que no nos interesa -- se ignora
+        }
+      }
+    },
+    cancel() {
+      try { reader.cancel(); } catch (e) {}
+    },
+  });
+}
+
 // OpenAI, GLM y Gemini "piensan" antes de responder (razonamiento oculto que
 // gasta del mismo cupo de tokens que la respuesta visible). Con un cupo chico
 // el modelo se queda sin lugar para escribir y la respuesta sale cortada a la
@@ -177,10 +226,29 @@ async function handler(req: Request, context: any) {
   const chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
 
   try {
+    if (providerId === "anthropic") {
+      // Streaming real: los headers salen apenas Anthropic confirma la
+      // conexion, el texto se va mandando a medida que se genera.
+      const stream = await streamAnthropic(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    // OpenAI / GLM / Gemini: se sigue esperando la respuesta completa
+    // (todavia no tienen el streaming implementado), pero se envuelve en
+    // un stream de un solo pedazo para que el cliente lea siempre igual
+    // sin importar el proveedor.
     const text = await prov.call(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
-    return new Response(JSON.stringify({ text }), {
+    const oneShotStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    });
+    return new Response(oneShotStream, {
       status: 200,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "text/plain; charset=utf-8" },
     });
   } catch (e: any) {
     return new Response(
