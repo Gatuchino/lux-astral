@@ -315,6 +315,12 @@ window.I18N = {
     auth_switch_to_login: "¿Ya tienes cuenta? Entra",
     auth_submit_login: "Entrar",
     auth_submit_signup: "Crear cuenta",
+    auth_password_hint: "Mínimo 6 caracteres.",
+    auth_loading: "Un momento...",
+    auth_error_email: "Escribí un email válido.",
+    auth_error_password_short: "La contraseña tiene que tener al menos 6 caracteres.",
+    auth_error_generic: "Algo salió mal. Probá de nuevo en un momento.",
+    auth_gate_intro: "Creá tu cuenta o iniciá sesión para continuar. Así tu plan y tu historial de lecturas quedan protegidos, y nadie más puede acceder a ellos escribiendo tu email.",
 
     // Misc
     back: "Volver",
@@ -830,6 +836,12 @@ window.I18N = {
     auth_switch_to_login: "Already have an account? Sign in",
     auth_submit_login: "Sign in",
     auth_submit_signup: "Create account",
+    auth_password_hint: "At least 6 characters.",
+    auth_loading: "One moment...",
+    auth_error_email: "Enter a valid email.",
+    auth_error_password_short: "Password must be at least 6 characters.",
+    auth_error_generic: "Something went wrong. Please try again in a moment.",
+    auth_gate_intro: "Create an account or sign in to continue. This keeps your plan and reading history protected, so no one else can access them just by typing your email.",
 
     back: "Back",
     close: "Close",

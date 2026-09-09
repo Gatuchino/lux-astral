@@ -1,67 +1,77 @@
-// Perfil local del visitante (nombre, género, email, foto), usado para
-// personalizar las respuestas de la IA, los saludos del sitio y la nueva
-// sección de Perfil. Vive 100% en el navegador (localStorage) — no hay
-// backend ni base de datos real de usuarios.
+// Perfil de la cuenta real de la visitante (nombre, género, email, foto),
+// usado para personalizar las respuestas de la IA, los saludos del sitio
+// y la sección de Perfil.
 //
-// Fuente única de verdad: la misma clave 'vela_onboarding' que ya se
-// completaba en el Onboarding (nombre + género) — ahora también guarda
-// email y foto, y se puede editar en cualquier momento desde Perfil.
+// 2026-09-09 (a pedido de Christian): antes esto vivía 100% en
+// localStorage y el "email" era un dato de texto libre sin verificar —
+// cualquiera podía escribir el email de otra persona y el backend se lo
+// creía. Ahora la fuente de verdad es una cuenta real (email + contraseña,
+// ver netlify/functions/booking.mts) y acá solo guardamos una CACHE local
+// de la sesión vigente: token + los datos públicos de la cuenta (nombre,
+// género, foto). El email nunca se edita desde acá -- es la identidad de
+// la cuenta, la define el signup. Clave localStorage: 'vela_session'.
 //
-// Migración: si existe un 'vela_user' viejo (del login falso que ya no
-// se usa) y todavía no hay nombre/email en vela_onboarding, se absorben
-// esos datos una sola vez para no perder lo que la persona ya había
-// cargado.
+// Quien entra sin sesión vigente ve el login/signup obligatorio (ver
+// App.jsx) -- no hay más "visitante anónima" con solo nombre y género.
 window.getArcanaProfile = function () {
-  let onboarding = null;
-  let legacyUser = null;
-  try { onboarding = JSON.parse(localStorage.getItem('vela_onboarding') || 'null'); } catch (e) {}
-  try { legacyUser = JSON.parse(localStorage.getItem('vela_user') || 'null'); } catch (e) {}
-
-  let name = (onboarding && onboarding.displayName) || null;
-  let email = (onboarding && onboarding.email) || null;
-  let gender = (onboarding && onboarding.gender) || null;
-  const photo = (onboarding && onboarding.photo) || null;
-
-  // Migración de una sola vez desde el viejo login falso.
-  if (legacyUser && (!name || !email)) {
-    const patch = {};
-    if (!name && legacyUser.name) patch.displayName = legacyUser.name;
-    if (!email && legacyUser.email) patch.email = legacyUser.email;
-    if (!gender && legacyUser.gender) patch.gender = legacyUser.gender;
-    if (Object.keys(patch).length > 0) {
-      const merged = Object.assign({}, onboarding || {}, patch);
-      try { localStorage.setItem('vela_onboarding', JSON.stringify(merged)); } catch (e) {}
-      name = merged.displayName || name;
-      email = merged.email || email;
-      gender = merged.gender || gender;
-    }
+  let session = null;
+  try { session = JSON.parse(localStorage.getItem('vela_session') || 'null'); } catch (e) {}
+  if (!session || !session.token || !session.email) {
+    return { name: null, email: null, gender: null, photo: null, token: null, loggedIn: false };
   }
-
-  return { name, email, gender, photo };
+  return {
+    name: session.name || null,
+    email: session.email || null,
+    gender: session.gender || null,
+    photo: session.photo || null,
+    token: session.token,
+    loggedIn: true,
+  };
 };
 
-// Actualiza el perfil local (nombre, email, género y/o foto) — mergea con
-// lo que ya había, nunca lo pisa entero. Devuelve el perfil actualizado.
-window.saveArcanaProfile = function (patch) {
-  let onboarding = null;
-  try { onboarding = JSON.parse(localStorage.getItem('vela_onboarding') || 'null'); } catch (e) {}
-  const next = Object.assign({}, onboarding || { completedAt: new Date().toISOString() });
-  if (patch && typeof patch === 'object') {
-    if ('name' in patch) next.displayName = (patch.name || '').trim() || null;
-    if ('email' in patch) next.email = (patch.email || '').trim() || null;
-    if ('gender' in patch) next.gender = patch.gender || null;
-    if ('photo' in patch) next.photo = patch.photo || null;
-  }
-  try { localStorage.setItem('vela_onboarding', JSON.stringify(next)); } catch (e) {}
+// Guarda la sesión completa (token + datos de cuenta) que devuelve el
+// backend al hacer signup/login/whoami -- acepta tanto la respuesta cruda
+// ({ token, user: {email, name, gender, photo} }) como un objeto ya plano.
+window.saveArcanaSession = function (session) {
+  if (!session || !session.token) return window.getArcanaProfile();
+  const u = session.user || {};
+  const next = {
+    token: session.token,
+    email: ((session.email || u.email || '') + '').trim().toLowerCase() || null,
+    name: session.name || u.name || null,
+    gender: session.gender || u.gender || null,
+    photo: session.photo || u.photo || null,
+  };
+  try { localStorage.setItem('vela_session', JSON.stringify(next)); } catch (e) {}
   return window.getArcanaProfile();
 };
 
-// Cierra la sesión local: borra el perfil guardado (nombre, email, género,
-// foto) y el resabio del login viejo, para que la próxima vez la persona
-// entre como visitante nueva (vuelve a pasar por Onboarding). No toca el
-// idioma elegido. Las lecturas quedan guardadas en el servidor por email,
-// así que no se pierden si vuelve a cargar el mismo email más adelante.
+// Actualiza localmente nombre/género/foto (mergea con lo que ya había).
+// Solo toca la caché local -- quien llama es responsable de persistirlo
+// también en el servidor (ver window.arcanaUpdateAccount en booking.js,
+// usado desde App.jsx). El email NO se puede cambiar desde acá.
+window.saveArcanaProfile = function (patch) {
+  let session = null;
+  try { session = JSON.parse(localStorage.getItem('vela_session') || 'null'); } catch (e) {}
+  if (!session || !session.token) return window.getArcanaProfile();
+  const next = Object.assign({}, session);
+  if (patch && typeof patch === 'object') {
+    if ('name' in patch) next.name = (patch.name || '').trim() || null;
+    if ('gender' in patch) next.gender = patch.gender || null;
+    if ('photo' in patch) next.photo = patch.photo || null;
+  }
+  try { localStorage.setItem('vela_session', JSON.stringify(next)); } catch (e) {}
+  return window.getArcanaProfile();
+};
+
+// Cierra la sesión: borra el token y los datos de cuenta guardados
+// localmente (además de los resabios de versiones viejas del perfil), asi
+// que la próxima vez la persona ve el login otra vez. No toca el idioma
+// elegido. Las lecturas y el plan quedan guardados en el servidor atados a
+// la cuenta, asi que no se pierden -- reaparecen al volver a iniciar
+// sesión con el mismo email.
 window.clearArcanaProfile = function () {
+  try { localStorage.removeItem('vela_session'); } catch (e) {}
   try { localStorage.removeItem('vela_onboarding'); } catch (e) {}
   try { localStorage.removeItem('vela_user'); } catch (e) {}
   try { localStorage.removeItem('vela_route'); } catch (e) {}

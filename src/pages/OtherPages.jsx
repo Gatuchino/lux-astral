@@ -391,7 +391,7 @@ function getLunarPhase(date) {
 // El código de acceso ahora lo genera el backend al confirmar el pago
 // (booking.accessCode) y se valida contra la API, no contra localStorage
 // — ver src/pages/VideoCall.jsx y arcanaJoinSession.
-function MarketplacePage({ lang, setRoute }) {
+function MarketplacePage({ lang, setRoute, profile }) {
   const t = window.I18N[lang];
   // El hero usaba una imagen vieja (assets/live-sessions-logo.png) con el
   // logo/marca anterior ("Arcana Tarot") baked-in del rebranding a Lux
@@ -406,11 +406,16 @@ function MarketplacePage({ lang, setRoute }) {
 
   const [active, setActive] = React.useState(null); // tarotista siendo agendada
   const [slotId, setSlotId] = React.useState(null);
-  const [form, setForm] = React.useState({ name: '', email: '' });
+  // 2026-09-09 (a pedido de Christian): el email de la reserva ya no es
+  // un campo de texto libre -- se toma SIEMPRE de la cuenta autenticada
+  // (profile.email), así nadie puede escribir el email de otra socia
+  // para pagar con su descuento (el backend además lo re-verifica: ver
+  // requireUserAuth en la acción "checkout"). El nombre sí se puede
+  // editar (es solo un dato de cortesía para la tarotista).
+  const [form, setForm] = React.useState({ name: profile.name || '', email: profile.email || '' });
   const [bookError, setBookError] = React.useState('');
-  // Suscripción detectada automáticamente por email (ya no es un checkbox de
-  // "confío en tu palabra" — se verifica en vivo contra PayPal, ver
-  // arcanaSubscriberStatus en src/data/booking.js).
+  // Suscripción de la cuenta autenticada — se verifica en vivo contra
+  // PayPal (ver arcanaSubscriberStatus en src/data/booking.js).
   const [subCheck, setSubCheck] = React.useState({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: '' });
 
   const [confirmState, setConfirmState] = React.useState('idle'); // idle | confirming | paid | cancelled | error
@@ -430,8 +435,6 @@ function MarketplacePage({ lang, setRoute }) {
   // formulario más recientes sin tener que re-montar el botón en cada
   // tecla — por eso viven en un ref en vez de en el closure del render.
   const bookingCtxRef = React.useRef({ tarotistId: null, slotId: null, customerName: '', customerEmail: '', isSubscriber: false, lang });
-  // debounce del chequeo de suscripción para no pegarle a PayPal en cada tecla
-  const subCheckTimerRef = React.useRef(null);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -454,32 +457,37 @@ function MarketplacePage({ lang, setRoute }) {
       tarotistId: active ? active.id : null,
       slotId,
       customerName: form.name,
-      customerEmail: form.email,
+      customerEmail: profile.email || '',
       isSubscriber: subCheck.isSubscriber,
       lang,
     };
   }, [active, slotId, form, lang, subCheck]);
 
-  // Chequea automáticamente (con un pequeño debounce) si el email escrito
-  // tiene una suscripción activa — reemplaza el viejo checkbox de honor.
+  // Verifica si la cuenta autenticada tiene una suscripción activa — ya
+  // no depende de lo que la visitante escriba, así nadie puede tipear el
+  // email de otra socia para ver/usar su descuento (el backend igual lo
+  // re-verifica del lado del servidor antes de cobrar).
   React.useEffect(() => {
-    const email = (form.email || '').trim().toLowerCase();
-    if (subCheckTimerRef.current) clearTimeout(subCheckTimerRef.current);
-    if (!email.includes('@')) {
+    if (!profile.token) {
       setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: '' });
       return undefined;
     }
-    subCheckTimerRef.current = setTimeout(() => {
-      setSubCheck((s) => ({ ...s, checking: true }));
-      window.arcanaSubscriberStatus(email)
-        .then((res) => setSubCheck({
+    let cancelled = false;
+    setSubCheck((s) => ({ ...s, checking: true }));
+    window.arcanaSubscriberStatus()
+      .then((res) => {
+        if (cancelled) return;
+        setSubCheck({
           checking: false, isSubscriber: !!res.isSubscriber, planKey: res.planKey || null,
-          oraculoFreeSlotAvailable: !!res.oraculoFreeSlotAvailable, checkedEmail: email,
-        }))
-        .catch(() => setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: email }));
-    }, 600);
-    return () => { if (subCheckTimerRef.current) clearTimeout(subCheckTimerRef.current); };
-  }, [form.email]);
+          oraculoFreeSlotAvailable: !!res.oraculoFreeSlotAvailable, checkedEmail: profile.email || '',
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: profile.email || '' });
+      });
+    return () => { cancelled = true; };
+  }, [profile.token]);
 
   React.useEffect(() => {
     if (!paypalReady) return;
@@ -508,8 +516,8 @@ function MarketplacePage({ lang, setRoute }) {
       style: { layout: 'vertical', color: 'gold', label: 'pay' },
       createOrder: () => {
         const ctx = bookingCtxRef.current;
-        if (!ctx.slotId || !ctx.customerEmail.includes('@')) {
-          setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Elegí un horario y completá tu email primero.' : 'Choose a time and enter your email first.'));
+        if (!ctx.slotId || !profile.token) {
+          setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Elegí un horario primero.' : 'Choose a time first.'));
           return Promise.reject(new Error('missing-fields'));
         }
         setBookError('');
@@ -543,8 +551,8 @@ function MarketplacePage({ lang, setRoute }) {
   const [freeBookingBusy, setFreeBookingBusy] = React.useState(false);
   const bookFreeOraculoSlot = () => {
     const ctx = bookingCtxRef.current;
-    if (!ctx.slotId || !ctx.customerEmail.includes('@')) {
-      setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Elegí un horario y completá tu email primero.' : 'Choose a time and enter your email first.'));
+    if (!ctx.slotId || !profile.token) {
+      setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Elegí un horario primero.' : 'Choose a time first.'));
       return;
     }
     setBookError('');
@@ -565,8 +573,7 @@ function MarketplacePage({ lang, setRoute }) {
   const openBooking = (tr) => {
     setActive(tr);
     setSlotId(null);
-    setForm({ name: '', email: '' });
-    setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: '' });
+    setForm({ name: profile.name || '', email: profile.email || '' });
     setBookError('');
   };
   const closeBooking = () => { setActive(null); paypalRenderedForRef.current = null; };
@@ -715,9 +722,9 @@ function MarketplacePage({ lang, setRoute }) {
               </div>
               <div className="form-field">
                 <label>{t.market_book_email}</label>
-                <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+                <input type="email" value={form.email} readOnly disabled title={lang === 'es' ? 'Es el email de tu cuenta.' : 'This is your account email.'} />
               </div>
-              {form.email.includes('@') && (
+              {!!profile.token && (
                 <div className="live-subscriber-check">
                   {subCheck.checking
                     ? (lang === 'es' ? 'Verificando suscripción…' : 'Checking subscription…')
@@ -742,7 +749,7 @@ function MarketplacePage({ lang, setRoute }) {
 
             {bookError && <div className="live-pay-note italic" style={{ color: '#e08080' }}>{bookError}</div>}
 
-            {(!slotId || !form.email.includes('@')) && (
+            {(!slotId || !profile.token) && (
               <div className="live-pay-note italic">{t.market_book_pay_hint}</div>
             )}
 
@@ -1276,7 +1283,9 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
     setEditing(true);
   };
   const saveEdit = () => {
-    updateProfile({ name: draftName, email: draftEmail, gender: draftGender });
+    // El email no se edita desde acá -- es la identidad de la cuenta
+    // (ver src/data/profile.js / la acción "update-account" del backend).
+    updateProfile({ name: draftName, gender: draftGender });
     setEditing(false);
   };
 
@@ -1399,7 +1408,7 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
   const acceptRetentionOffer = () => {
     if (cancelBusy) return;
     setCancelBusy(true); setCancelError('');
-    window.arcanaApplyRetentionOffer(profile.email)
+    window.arcanaApplyRetentionOffer()
       .then((res) => {
         setOfferNeedsApproval(!!res.needsApproval);
         if (res.needsApproval && res.approveUrl) window.open(res.approveUrl, '_blank', 'noopener');
@@ -1411,7 +1420,7 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
   const declineOfferAndCancel = () => {
     if (cancelBusy) return;
     setCancelBusy(true); setCancelError('');
-    window.arcanaCancelSubscription({ email: profile.email, reason: cancelReasonLabel(), reasonDetail: cancelDetail.trim() })
+    window.arcanaCancelSubscription({ reason: cancelReasonLabel(), reasonDetail: cancelDetail.trim() })
       .then(() => { setCancelStep('cancelled'); setPlanInfo(null); })
       .catch((e) => setCancelError(e.message || (es ? 'No se pudo cancelar. Probá de nuevo o escribinos a comentarios@luxastral.com.' : 'Could not cancel. Please try again or write to comentarios@luxastral.com.')))
       .finally(() => setCancelBusy(false));
@@ -1547,7 +1556,7 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
           </div>
           <div className="form-field">
             <label>Email</label>
-            <input type="email" value={draftEmail} onChange={(e) => setDraftEmail(e.target.value)} maxLength={120} />
+            <input type="email" value={draftEmail} readOnly disabled title={es ? 'Es el email de tu cuenta.' : 'This is your account email.'} />
           </div>
           <div className="form-field">
             <label>{t.onb_gender_label}</label>
@@ -2352,7 +2361,7 @@ function spreadName(spread, t) {
 }
 
 // =========== Pricing ===========
-function PricingPage({ lang, setRoute }) {
+function PricingPage({ lang, setRoute, profile }) {
   const t = window.I18N[lang];
   const go = (page) => { if (typeof setRoute === 'function') setRoute({ page }); };
   const [billing, setBilling] = React.useState('year'); // 'month' | 'year'
@@ -2363,7 +2372,12 @@ function PricingPage({ lang, setRoute }) {
   // "confirm-subscription" en local-server.js / booking.mts.
   const [plansConfig, setPlansConfig] = React.useState({ plans: null, paypalClientId: '' });
   const [subOpen, setSubOpen] = React.useState(null); // { key: 'luna'|'oraculo', billing } mientras el modal está abierto
-  const [subEmail, setSubEmail] = React.useState('');
+  // 2026-09-09 (a pedido de Christian): el email de la suscripción ya no
+  // es un campo de texto libre -- se toma SIEMPRE de la cuenta
+  // autenticada, así la suscripción queda atada a quien realmente paga
+  // (el backend además lo re-verifica: ver requireUserAuth en la acción
+  // "confirm-subscription").
+  const [subEmail, setSubEmail] = React.useState(profile.email || '');
   const [subError, setSubError] = React.useState('');
   const [subState, setSubState] = React.useState('idle'); // idle | confirming | done | error
   const [subSdkLoaded, setSubSdkLoaded] = React.useState(false);
@@ -2395,8 +2409,8 @@ function PricingPage({ lang, setRoute }) {
   }, [plansConfig.paypalClientId]);
 
   React.useEffect(() => {
-    subCtxRef.current = { email: subEmail, planKey: subOpen ? subOpen.key : '', billing: subOpen ? subOpen.billing : '' };
-  }, [subEmail, subOpen]);
+    subCtxRef.current = { email: profile.email || '', planKey: subOpen ? subOpen.key : '', billing: subOpen ? subOpen.billing : '' };
+  }, [profile.email, subOpen]);
 
   React.useEffect(() => {
     if (!subOpen || !subSdkLoaded || !window.paypal || !subButtonBoxRef.current) return;
@@ -2410,10 +2424,9 @@ function PricingPage({ lang, setRoute }) {
     window.paypal.Buttons({
       style: { layout: 'vertical', color: 'gold', label: 'subscribe' },
       createSubscription: (data, actions) => {
-        const ctx = subCtxRef.current;
-        if (!ctx.email.includes('@')) {
-          setSubError(lang === 'es' ? 'Completá tu email primero.' : 'Enter your email first.');
-          return Promise.reject(new Error('missing-email'));
+        if (!profile.token) {
+          setSubError(lang === 'es' ? 'Tenés que iniciar sesión primero.' : 'You need to sign in first.');
+          return Promise.reject(new Error('missing-session'));
         }
         setSubError('');
         return actions.subscription.create({ plan_id: planId });
@@ -2422,7 +2435,7 @@ function PricingPage({ lang, setRoute }) {
         const ctx = subCtxRef.current;
         setSubState('confirming');
         return window.arcanaConfirmSubscription({
-          subscriptionId: data.subscriptionID, customerEmail: ctx.email, planKey: ctx.planKey, billing: ctx.billing,
+          subscriptionId: data.subscriptionID, planKey: ctx.planKey, billing: ctx.billing,
         })
           .then((res) => {
             if (res.isSubscriber) {
@@ -2441,7 +2454,7 @@ function PricingPage({ lang, setRoute }) {
 
   const openSubscribe = (planKey) => {
     setSubOpen({ key: planKey, billing });
-    setSubEmail('');
+    setSubEmail(profile.email || '');
     setSubError('');
     setSubState('idle');
     subRenderedForRef.current = null;
@@ -2643,7 +2656,7 @@ function PricingPage({ lang, setRoute }) {
                 <div className="live-modal-block">
                   <div className="form-field">
                     <label>{t.market_book_email}</label>
-                    <input type="email" value={subEmail} onChange={(e) => setSubEmail(e.target.value)} />
+                    <input type="email" value={subEmail} readOnly disabled title={lang === 'es' ? 'Es el email de tu cuenta.' : 'This is your account email.'} />
                   </div>
                   {!plansConfig.plans && (
                     <div className="live-pay-note italic">

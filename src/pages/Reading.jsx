@@ -67,9 +67,10 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
   // (antes era una preferencia local sin límites; ahora depende del email:
   // suscriptora -> tipo fijo de su plan, sin suscripción -> plan Vela
   // gratis con tipo 2 y máximo 1 consulta al día, ver arcanaReadingAccess).
-  const [email, setEmail] = React.useState(() => {
-    try { return localStorage.getItem('arcana_reading_email') || ''; } catch { return ''; }
-  });
+  // 2026-09-09 (a pedido de Christian): el email ya no es un campo de
+  // texto libre acá -- se deriva SIEMPRE de la cuenta autenticada
+  // (profile.token via sessionToken), para que nadie pueda escribir el
+  // email de otra socia y acceder a su plan o a sus respuestas guardadas.
   const [responseType, setResponseType] = React.useState('2');
   // Ticket corto que emite reading-access y que tarot-interpret exige antes
   // de gastar un llamado a la IA (2026-09-08, auditoria) -- sin esto no se
@@ -179,15 +180,9 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
   // (plan real, o el límite del plan Vela gratis) y recién ahí arranca la
   // baraja — así nunca se gasta un llamado a la IA de más si no corresponde.
   const beginReading = () => {
-    const em = (email || '').trim().toLowerCase();
-    if (!em.includes('@')) {
-      setAccessError(lang === 'es' ? 'Escribí tu email para continuar.' : 'Enter your email to continue.');
-      return;
-    }
-    try { localStorage.setItem('arcana_reading_email', em); } catch { /* localStorage no disponible, no es crítico */ }
     setAccessError('');
     setAccessChecking(true);
-    window.arcanaReadingAccess({ email: em, spread, preferredResponseType: selectedRT })
+    window.arcanaReadingAccess({ spread, preferredResponseType: selectedRT })
       .then((res) => {
         setResponseType(res.responseType || '2');
         setTicketId(res.ticketId || null);
@@ -254,10 +249,8 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
   // plan gratis: eso solo se descuenta cuando NO hay suscripción activa, y
   // acá solo se llega con lecturas que ya guardó una socia de pago.
   React.useEffect(() => {
-    if (!resumeReading) return;
-    const em = (profile && profile.email) || email || '';
-    if (!em.includes('@')) return;
-    window.arcanaReadingAccess({ email: em, spread, preferredResponseType: selectedRT })
+    if (!resumeReading || !(profile && profile.token)) return;
+    window.arcanaReadingAccess({ spread, preferredResponseType: selectedRT })
       .then((res) => {
         if (res && res.responseType) setResponseType(res.responseType);
         if (res && res.ticketId) setTicketId(res.ticketId);
@@ -475,20 +468,6 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
               autoFocus
             />
             <div className="q-hint">"{t.q_hint}"</div>
-            <div className="form-field" style={{ marginTop: 18, maxWidth: 360 }}>
-              <label>{lang === 'es' ? 'Tu email' : 'Your email'}</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="tu@email.com"
-              />
-              <div className="q-hint" style={{ marginTop: 4 }}>
-                {lang === 'es'
-                  ? 'Lo usamos para aplicar tu plan (o el límite diario del plan gratis).'
-                  : "We use it to apply your plan (or the free plan's daily limit)."}
-              </div>
-            </div>
             {showRTPicker && (
               <div className="form-field" style={{ marginTop: 18, maxWidth: 460 }}>
                 <label>{lang === 'es' ? 'Tipo de respuesta' : 'Response type'}</label>

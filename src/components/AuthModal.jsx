@@ -1,35 +1,75 @@
-function AuthModal({ lang, onClose, onAuth }) {
+// 2026-09-09 (a pedido de Christian): login/signup real con cuentas
+// verdaderas (email + contraseña) contra el backend -- ver
+// netlify/functions/booking.mts (acciones "signup"/"login") y
+// src/data/profile.js (window.saveArcanaSession). Antes este modal era
+// puramente decorativo: "creaba una cuenta" con cualquier email sin
+// pedir ni validar contraseña, y ni siquiera estaba conectado a ninguna
+// pantalla. Ahora es el único portón de entrada al sitio (ver el gate
+// obligatorio en App.jsx) -- se le puede pasar dismissible={false} para
+// que no se pueda cerrar sin iniciar sesión.
+function AuthModal({ lang, onClose, onAuth, dismissible }) {
   const t = window.I18N[lang];
+  const canDismiss = dismissible !== false;
   const [mode, setMode] = React.useState('login'); // login | signup
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [gender, setGender] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
   const isSignup = mode === 'signup';
+
+  const switchMode = (next) => {
+    setMode(next);
+    setError('');
+  };
+
   const submit = (e) => {
     e.preventDefault();
-    onAuth({
-      name: name || (email ? email.split('@')[0] : 'Buscador'),
-      email,
-      gender: gender || null,
-      since: new Date().toISOString(),
-    });
-    onClose();
+    if (busy) return;
+    setError('');
+    const em = email.trim().toLowerCase();
+    if (!em.includes('@')) {
+      setError(t.auth_error_email);
+      return;
+    }
+    if (password.length < 6) {
+      setError(t.auth_error_password_short);
+      return;
+    }
+    setBusy(true);
+    const call = isSignup
+      ? window.arcanaSignup({ email: em, password, name: name.trim(), gender: gender || null })
+      : window.arcanaLogin({ email: em, password });
+    call
+      .then((res) => {
+        const profile = window.saveArcanaSession(res);
+        onAuth(profile);
+        if (canDismiss) onClose();
+      })
+      .catch((err) => {
+        setError((err && err.message) || t.auth_error_generic);
+      })
+      .finally(() => setBusy(false));
   };
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={canDismiss ? onClose : undefined}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>✕</button>
+        {canDismiss && <button className="modal-close" onClick={onClose}>✕</button>}
         <div className="eyebrow" style={{ marginBottom: 8 }}>Lux Astral</div>
         <h2 style={{ fontSize: 26, marginBottom: 6 }}>{isSignup ? t.auth_signup_h : t.auth_login_h}</h2>
         <p style={{ color: 'var(--ink-soft)', marginBottom: 20, fontStyle: 'italic' }}>
           {isSignup ? '“Los arcanos recuerdan las manos que los barajaron.”' : '“Bienvenida de nuevo al círculo.”'}
         </p>
+        {!canDismiss && (
+          <p style={{ color: 'var(--ink-soft)', marginBottom: 20, fontSize: 14 }}>{t.auth_gate_intro}</p>
+        )}
         <form onSubmit={submit}>
           {isSignup && (
             <div className="form-field">
               <label>{t.auth_name}</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
+              <input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
           )}
           {isSignup && (
@@ -50,26 +90,19 @@ function AuthModal({ lang, onClose, onAuth }) {
           </div>
           <div className="form-field">
             <label>{t.auth_password}</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+            {isSignup && <div className="q-hint" style={{ marginTop: 4 }}>{t.auth_password_hint}</div>}
           </div>
-          <button type="submit" className="btn btn-primary btn-lg" style={{ width: '100%', marginTop: 8 }}>
-            {isSignup ? t.auth_submit_signup : t.auth_submit_login}
+          {error && <div className="form-error" style={{ color: '#c0392b', fontSize: 14, marginTop: 4 }}>{error}</div>}
+          <button type="submit" className="btn btn-primary btn-lg" style={{ width: '100%', marginTop: 12 }} disabled={busy}>
+            {busy ? t.auth_loading : (isSignup ? t.auth_submit_signup : t.auth_submit_login)}
           </button>
         </form>
-        <div className="divider">{t.auth_or}</div>
-        <div style={{ display: 'grid', gap: 10 }}>
-          <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => onAuth({ name: 'Buscador', email: 'g@example.com', since: new Date().toISOString() }) || onClose()}>
-            {t.auth_google}
-          </button>
-          <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => onAuth({ name: 'Buscador', email: 'a@example.com', since: new Date().toISOString() }) || onClose()}>
-            {t.auth_apple}
-          </button>
-        </div>
         <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14, color: 'var(--ink-soft)' }}>
           <a
             href="#"
             style={{ color: 'var(--gold)', textDecoration: 'none' }}
-            onClick={(e) => { e.preventDefault(); setMode(isSignup ? 'login' : 'signup'); }}
+            onClick={(e) => { e.preventDefault(); switchMode(isSignup ? 'login' : 'signup'); }}
           >
             {isSignup ? t.auth_switch_to_login : t.auth_switch_to_signup}
           </a>

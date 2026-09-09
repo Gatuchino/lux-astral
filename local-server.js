@@ -357,6 +357,13 @@ const SETUP_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 horas
 // arriba, solo se suma como capa extra).
 const ARCANA_SETUP_PASSWORD = process.env.ARCANA_SETUP_PASSWORD || '';
 
+// 2026-09-09 (a pedido de Christian) -- ver booking.mts para el detalle
+// completo comentado: cuentas reales con email + contrasena, obligatorias
+// desde el primer ingreso. store.users / store.userSessions y
+// requireUserAuth() cierran el hueco donde cualquiera podia escribir el
+// email de otra socia y el backend se lo creia.
+const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+
 function hashSetupPassword(pw) {
   return crypto.createHash('sha256').update(String(pw || '')).digest('hex');
 }
@@ -454,6 +461,41 @@ function logEvent(store, { email, type, detail }) {
   if (store.eventLog.length > 5000) store.eventLog = store.eventLog.slice(store.eventLog.length - 5000);
 }
 
+function hashAccountPassword(pw, saltHex) {
+  const salt = saltHex ? Buffer.from(saltHex, 'hex') : crypto.randomBytes(16);
+  const hash = crypto.pbkdf2Sync(String(pw || ''), salt, 100000, 32, 'sha256');
+  return { hash: hash.toString('hex'), salt: salt.toString('hex') };
+}
+function verifyAccountPassword(pw, saltHex, hashHex) {
+  if (!saltHex || !hashHex) return false;
+  const { hash } = hashAccountPassword(pw, saltHex);
+  return hash === hashHex;
+}
+function findUserByEmail(store, email) {
+  const e = (email || '').trim().toLowerCase();
+  return store.users.find((u) => u.email === e) || null;
+}
+function pruneUserSessions(store) {
+  const now = Date.now();
+  for (const token of Object.keys(store.userSessions)) {
+    if (now - store.userSessions[token].createdAt > USER_SESSION_TTL_MS) delete store.userSessions[token];
+  }
+}
+function requireUserAuth(store, payload) {
+  pruneUserSessions(store);
+  const token = payload && payload.sessionToken;
+  const session = token ? store.userSessions[token] : null;
+  if (!session) return null;
+  const user = findUserByEmail(store, session.email);
+  if (!user) return null;
+  return user.email;
+}
+function publicUser(store, email) {
+  const user = findUserByEmail(store, email);
+  if (!user) return null;
+  return { email: user.email, name: user.name || '', gender: user.gender || null, photo: user.photo || null, createdAt: user.createdAt || null };
+}
+
 function loadBookingStore() {
   try {
     const raw = fs.readFileSync(BOOKING_STORE_PATH, 'utf8');
@@ -476,6 +518,8 @@ function loadBookingStore() {
     }
     if (!store.setupSessions || typeof store.setupSessions !== 'object') store.setupSessions = {};
     if (!Array.isArray(store.eventLog)) store.eventLog = [];
+    if (!Array.isArray(store.users)) store.users = [];
+    if (!store.userSessions || typeof store.userSessions !== 'object') store.userSessions = {};
     if (!store.settings.newsletterTemplate) store.settings.newsletterTemplate = loadDefaultNewsletterTemplate();
     if (!store.settings.newsletterSchedule || typeof store.settings.newsletterSchedule !== 'object') {
       store.settings.newsletterSchedule = { ...DEFAULT_NEWSLETTER_SCHEDULE };
@@ -526,6 +570,8 @@ function loadBookingStore() {
       },
       setupSessions: {},
       eventLog: [],
+      users: [],
+      userSessions: {},
     };
   }
 }
@@ -1187,7 +1233,8 @@ async function handleBooking(req, res, url) {
         return sendJson(res, 200, { plans: store.settings.paypalPlanIds || null, paypalClientId: process.env.PAYPAL_CLIENT_ID || '' });
       }
       if (action === 'subscriber-status') {
-        const email = (url.searchParams.get('email') || '').trim().toLowerCase();
+        const email = requireUserAuth(store, { sessionToken: url.searchParams.get('sessionToken') || '' });
+        if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
         const isSub = await verifySubscriberByEmail(store, email);
         const sub = store.subscribers.find((s) => s.email === email);
         const oraculoFreeSlotAvailable = !!(isSub && sub && sub.planKey === 'oraculo' && sub.lastFreeSessionMonth !== monthKey());
@@ -1235,6 +1282,15 @@ async function handleBooking(req, res, url) {
           meetingLink: tr ? tr.meetingLink : '',
         });
       }
+      if (action === 'power-user-status') {
+        const email = requireUserAuth(store, { sessionToken: url.searchParams.get('sessionToken') || '' });
+        return sendJson(res, 200, { isPowerUser: email ? isPowerUser(store, email) : false });
+      }
+      if (action === 'whoami') {
+        const email = requireUserAuth(store, { sessionToken: url.searchParams.get('sessionToken') || '' });
+        if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+        return sendJson(res, 200, { ok: true, email, user: publicUser(store, email) });
+      }
       return sendJson(res, 404, { error: 'Acción GET desconocida.' });
     }
 
@@ -1245,6 +1301,77 @@ async function handleBooking(req, res, url) {
     const payload = await readJsonBody(req);
     const action = payload.action;
     const store = loadBookingStore();
+
+    if (action === 'signup') {
+      const email = (payload.email || '').trim().toLowerCase();
+      const pw = String(payload.password || '');
+      const name = (payload.name || '').trim().slice(0, 80);
+      const gender = payload.gender ? String(payload.gender).slice(0, 20) : null;
+      if (!email || !email.includes('@')) return sendJson(res, 400, { error: 'Escribí un email válido.' });
+      if (pw.length < 6) return sendJson(res, 400, { error: 'La contraseña tiene que tener al menos 6 caracteres.' });
+      if (findUserByEmail(store, email)) {
+        return sendJson(res, 409, { error: 'Ya existe una cuenta con ese email. Iniciá sesión.' });
+      }
+      const { hash, salt } = hashAccountPassword(pw);
+      store.users.push({ email, passwordHash: hash, passwordSalt: salt, name, gender, photo: null, createdAt: new Date().toISOString() });
+      pruneUserSessions(store);
+      const token = crypto.randomUUID();
+      store.userSessions[token] = { email, createdAt: Date.now() };
+      logEvent(store, { email, type: 'signup', detail: {} });
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true, token, user: publicUser(store, email) });
+    }
+
+    if (action === 'login') {
+      const email = (payload.email || '').trim().toLowerCase();
+      const pw = String(payload.password || '');
+      const user = findUserByEmail(store, email);
+      if (!user || !verifyAccountPassword(pw, user.passwordSalt, user.passwordHash)) {
+        return sendJson(res, 401, { error: 'Email o contraseña incorrectos.' });
+      }
+      pruneUserSessions(store);
+      const token = crypto.randomUUID();
+      store.userSessions[token] = { email, createdAt: Date.now() };
+      logEvent(store, { email, type: 'login', detail: {} });
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true, token, user: publicUser(store, email) });
+    }
+
+    if (action === 'logout') {
+      const token = payload && payload.sessionToken;
+      if (token) delete store.userSessions[token];
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (action === 'update-account') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const user = findUserByEmail(store, email);
+      const patch = payload.patch || {};
+      if (typeof patch.name === 'string') user.name = patch.name.trim().slice(0, 80);
+      if (patch.gender !== undefined) user.gender = patch.gender ? String(patch.gender).slice(0, 20) : null;
+      if (patch.photo !== undefined) user.photo = patch.photo ? String(patch.photo).slice(0, 400000) : null;
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true, user: publicUser(store, email) });
+    }
+
+    if (action === 'change-account-password') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const user = findUserByEmail(store, email);
+      const currentPw = String(payload.currentPassword || '');
+      const newPw = String(payload.newPassword || '');
+      if (!verifyAccountPassword(currentPw, user.passwordSalt, user.passwordHash)) {
+        return sendJson(res, 401, { error: 'La contraseña actual no es correcta.' });
+      }
+      if (newPw.length < 6) return sendJson(res, 400, { error: 'La contraseña nueva tiene que tener al menos 6 caracteres.' });
+      const { hash, salt } = hashAccountPassword(newPw);
+      user.passwordHash = hash;
+      user.passwordSalt = salt;
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
 
     if (action === 'save-tarotist') {
       if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
@@ -1337,9 +1464,10 @@ async function handleBooking(req, res, url) {
       // y la clienta la aprobó en el popup — acá la verificamos en vivo contra
       // PayPal (nunca confiamos en lo que dice el navegador) y la guardamos
       // asociada a su email.
-      const { subscriptionId, customerEmail, planKey, billing } = payload;
-      const email = (customerEmail || '').trim().toLowerCase();
-      if (!subscriptionId || !email || !email.includes('@')) {
+      const { subscriptionId } = payload;
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      if (!subscriptionId) {
         return sendJson(res, 400, { error: 'Faltan datos de la suscripción.' });
       }
       let sub;
@@ -1391,8 +1519,8 @@ async function handleBooking(req, res, url) {
       // Guarda el motivo que dio la clienta y avisa por email a
       // comentarios@luxastral.com (best-effort: si Resend no está
       // configurado o falla, la cancelación igual queda hecha).
-      const email = (payload.email || '').trim().toLowerCase();
-      if (!email) return sendJson(res, 400, { error: 'Falta el email.' });
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const reason = (payload.reason || '').trim().slice(0, 60);
       const reasonDetail = (payload.reasonDetail || '').trim().slice(0, 1000);
       const isActive = await verifySubscriberByEmail(store, email);
@@ -1452,8 +1580,8 @@ async function handleBooking(req, res, url) {
       // ese caso devolvemos el link de aprobación para abrirlo en una
       // pestaña nueva; si no lo aprueba, sigue facturándose como antes
       // (no hay riesgo de cobrar mal).
-      const email = (payload.email || '').trim().toLowerCase();
-      if (!email) return sendJson(res, 400, { error: 'Falta el email.' });
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const isActive = await verifySubscriberByEmail(store, email);
       const entry = store.subscribers.find((s) => s.email === email);
       if (!entry || !isActive) return sendJson(res, 404, { error: 'No encontramos una membresía activa con ese email.' });
@@ -1688,7 +1816,9 @@ async function handleBooking(req, res, url) {
       // Antes de generar una lectura con IA: decide si se puede (según el
       // plan de la suscriptora, o el límite del plan Vela) y con qué tipo
       // de respuesta — así nunca se gasta un llamado a la IA de más.
-      const { email, spread, preferredResponseType } = payload;
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const { spread, preferredResponseType } = payload;
       const result = await resolveReadingAccess(store, email, spread, preferredResponseType);
       saveBookingStore(store);
       return sendJson(res, result.allowed ? 200 : 403, result);
@@ -1702,16 +1832,17 @@ async function handleBooking(req, res, url) {
     // Ahora quedan en el servidor, atadas al email de la socia.
     // ---------------------------------------------------------------
     if (action === 'list-readings') {
-      const email = (payload.email || '').trim().toLowerCase();
-      if (!email || !email.includes('@')) return sendJson(res, 400, { error: 'Falta un email válido.' });
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const list = store.readingsByEmail[email] || [];
       return sendJson(res, 200, { readings: list, migrated: !!store.readingsMigrated[email] });
     }
 
     if (action === 'save-reading') {
-      const email = (payload.email || '').trim().toLowerCase();
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const reading = payload.reading;
-      if (!email || !email.includes('@') || !reading || typeof reading !== 'object') {
+      if (!reading || typeof reading !== 'object') {
         return sendJson(res, 400, { error: 'Faltan datos de la lectura.' });
       }
       const isSub = await verifySubscriberByEmail(store, email);
@@ -1724,9 +1855,10 @@ async function handleBooking(req, res, url) {
     }
 
     if (action === 'update-reading') {
-      const email = (payload.email || '').trim().toLowerCase();
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const { id, patch: readingPatch } = payload;
-      if (!email || !id || !readingPatch || typeof readingPatch !== 'object') {
+      if (!id || !readingPatch || typeof readingPatch !== 'object') {
         return sendJson(res, 400, { error: 'Faltan datos para actualizar la lectura.' });
       }
       const list = store.readingsByEmail[email] || [];
@@ -1738,9 +1870,10 @@ async function handleBooking(req, res, url) {
     }
 
     if (action === 'delete-reading') {
-      const email = (payload.email || '').trim().toLowerCase();
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const { id } = payload;
-      if (!email || !id) return sendJson(res, 400, { error: 'Faltan datos para borrar la lectura.' });
+      if (!id) return sendJson(res, 400, { error: 'Faltan datos para borrar la lectura.' });
       const list = store.readingsByEmail[email] || [];
       store.readingsByEmail[email] = list.filter((r) => r.id !== id);
       saveBookingStore(store);
@@ -1752,9 +1885,9 @@ async function handleBooking(req, res, url) {
       // viejas guardadas solo en localStorage (de antes de este cambio),
       // las sube al servidor la primera vez que las ve. readingsMigrated
       // evita que se repita en cada carga de pagina.
-      const email = (payload.email || '').trim().toLowerCase();
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const incoming = Array.isArray(payload.readings) ? payload.readings : [];
-      if (!email || !email.includes('@')) return sendJson(res, 400, { error: 'Falta un email válido.' });
       if (!store.readingsMigrated[email]) {
         const isSub = await verifySubscriberByEmail(store, email);
         if (isSub && incoming.length) {
@@ -1777,13 +1910,15 @@ async function handleBooking(req, res, url) {
       // La sesión de video mensual gratis del plan Oráculo — sin pasar por
       // PayPal para nada, pero verificando de nuevo en el servidor (nunca
       // confiamos en que el navegador diga "tengo derecho a esto gratis").
-      const { tarotistId, slotId, customerName, customerEmail, lang } = payload;
+      // El email SIEMPRE se deriva del sessionToken, no del customerEmail
+      // que manda el navegador (ver requireUserAuth).
+      const { tarotistId, slotId, customerName } = payload;
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const tr = store.tarotists.find((x) => x.id === tarotistId);
       if (!tr) return sendJson(res, 404, { error: 'Tarotista no encontrada.' });
       const slot = tr.availability.find((s) => s.id === slotId);
       if (!slot || !slotIsAvailable(slot)) return sendJson(res, 409, { error: 'Ese horario ya no está disponible.' });
-      const email = (customerEmail || '').trim().toLowerCase();
-      if (!email || !email.includes('@')) return sendJson(res, 400, { error: 'Falta un email válido.' });
       const oraculoCheck = await checkOraculoFreeSlot(store, email);
       if (!oraculoCheck.eligible) {
         return sendJson(res, 403, { error: 'Esta sesión gratis ya no está disponible para tu suscripción este mes.' });
@@ -1809,18 +1944,20 @@ async function handleBooking(req, res, url) {
     }
 
     if (action === 'checkout') {
-      const { tarotistId, slotId, customerName, customerEmail, lang } = payload;
+      const { tarotistId, slotId, customerName, lang } = payload;
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
       const tr = store.tarotists.find((x) => x.id === tarotistId);
       if (!tr) return sendJson(res, 404, { error: 'Tarotista no encontrada.' });
       const slot = tr.availability.find((s) => s.id === slotId);
       if (!slot || !slotIsAvailable(slot)) return sendJson(res, 409, { error: 'Ese horario ya no está disponible.' });
-      if (!customerEmail || !customerEmail.includes('@')) return sendJson(res, 400, { error: 'Falta un email válido.' });
 
-      // Ya no confiamos en un checkbox que marca la clienta: verificamos en
-      // vivo contra PayPal si su email tiene una suscripción activa, y el %
-      // de descuento depende del plan real (Luna/Estrella/Oráculo).
-      const isSubscriber = await verifySubscriberByEmail(store, customerEmail);
-      const subEntry = isSubscriber ? store.subscribers.find((s) => s.email === (customerEmail || '').trim().toLowerCase()) : null;
+      // Ya no confiamos en un checkbox que marca la clienta, ni en el email
+      // que escribe: el email SIEMPRE se deriva del sessionToken (ver
+      // requireUserAuth) -- así nadie puede tipear el email de otra socia
+      // para pagar con su descuento.
+      const isSubscriber = await verifySubscriberByEmail(store, email);
+      const subEntry = isSubscriber ? store.subscribers.find((s) => s.email === email) : null;
       const discountPct = subEntry ? (store.settings.planDiscounts[subEntry.planKey] || 0) : 0;
       const base = Number(tr.rate) || store.settings.sessionBasePrice;
       const price = discountPct
@@ -1830,7 +1967,7 @@ async function handleBooking(req, res, url) {
       const bookingId = genId('bk');
       slot.reservedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       const booking = {
-        id: bookingId, tarotistId, slotId, customerName: customerName || '', customerEmail,
+        id: bookingId, tarotistId, slotId, customerName: customerName || '', customerEmail: email,
         amount: price, currency: 'usd', status: 'pending', paypalOrderId: null, createdAt: new Date().toISOString(),
         isSubscriber,
       };
@@ -2012,7 +2149,8 @@ async function handleBooking(req, res, url) {
       // Registro liviano de accesos y secciones visitadas, para el panel
       // de Informes — nunca incluye contenido de lecturas ni preguntas,
       // solo qué sección se visitó y cuándo.
-      const email = (payload.email || '').trim().toLowerCase();
+      const authEmail = requireUserAuth(store, payload);
+      const email = authEmail || (payload.email ? String(payload.email).trim().toLowerCase() : '');
       const page = String(payload.page || '').slice(0, 60);
       if (page) {
         logEvent(store, { email, type: 'page-visit', detail: { page } });

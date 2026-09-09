@@ -22,12 +22,14 @@ async function arcanaBookingCall(action, payload) {
   // configuró).
   let adminPassword = '';
   let setupToken = '';
+  let sessionToken = '';
   try { adminPassword = localStorage.getItem('arcana_setup_password') || ''; } catch {}
   try { setupToken = JSON.parse(sessionStorage.getItem('arcana_setup_session') || 'null')?.token || ''; } catch {}
+  try { sessionToken = JSON.parse(localStorage.getItem('vela_session') || 'null')?.token || ''; } catch {}
   const res = await fetch('/.netlify/functions/booking', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ action, adminPassword, setupToken, ...payload }),
+    body: JSON.stringify({ action, adminPassword, setupToken, sessionToken, ...payload }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -39,11 +41,35 @@ async function arcanaBookingCall(action, payload) {
   return json;
 }
 
+// 2026-09-09: token de la cuenta real de la usuaria (ver src/data/profile.js
+// -- window.saveArcanaSession). Las acciones GET (que no tienen body JSON)
+// lo mandan como query param; las POST lo mandan solas via arcanaBookingCall.
+function arcanaSessionToken() {
+  try { return JSON.parse(localStorage.getItem('vela_session') || 'null')?.token || ''; } catch { return ''; }
+}
+
 window.arcanaFetchTarotistas = async function () {
   const res = await fetch('/.netlify/functions/booking?action=tarotistas');
   if (!res.ok) throw new Error('No se pudo cargar el Marketplace.');
   return res.json(); // { tarotists, settings }
 };
+
+// Cuentas reales (email + contraseña), obligatorias desde el primer
+// ingreso -- ver App.jsx (gate de autenticación) y AuthModal.jsx.
+window.arcanaSignup = (opts) => arcanaBookingCall('signup', opts); // { email, password, name, gender } -> { ok, token, user }
+window.arcanaLogin = (opts) => arcanaBookingCall('login', opts); // { email, password } -> { ok, token, user }
+window.arcanaLogout = () => arcanaBookingCall('logout', {});
+window.arcanaWhoAmI = async function () {
+  const token = arcanaSessionToken();
+  if (!token) return null;
+  const res = await fetch('/.netlify/functions/booking?action=whoami&sessionToken=' + encodeURIComponent(token));
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) return null;
+  return json; // { ok, email, user }
+};
+window.arcanaUpdateAccount = (patch) => arcanaBookingCall('update-account', { patch }); // -> { ok, user }
+window.arcanaChangeAccountPassword = (currentPassword, newPassword) =>
+  arcanaBookingCall('change-account-password', { currentPassword, newPassword });
 
 window.arcanaSaveTarotist = (tarotist) => arcanaBookingCall('save-tarotist', { tarotist });
 window.arcanaDeleteTarotist = (id) => arcanaBookingCall('delete-tarotist', { id });
@@ -65,9 +91,9 @@ window.arcanaSubscriptionPlans = async function () {
   if (!res.ok) throw new Error('No se pudieron cargar los planes.');
   return res.json(); // { plans: {luna_month, luna_year, oraculo_month, oraculo_year} | null, paypalClientId }
 };
-window.arcanaConfirmSubscription = (opts) => arcanaBookingCall('confirm-subscription', opts); // { subscriptionId, customerEmail, planKey, billing } -> { status, isSubscriber }
-window.arcanaSubscriberStatus = async function (email) {
-  const res = await fetch('/.netlify/functions/booking?action=subscriber-status&email=' + encodeURIComponent(email));
+window.arcanaConfirmSubscription = (opts) => arcanaBookingCall('confirm-subscription', opts); // { subscriptionId } -> { status, isSubscriber } (el email se deriva de la sesión)
+window.arcanaSubscriberStatus = async function () {
+  const res = await fetch('/.netlify/functions/booking?action=subscriber-status&sessionToken=' + encodeURIComponent(arcanaSessionToken()));
   if (!res.ok) throw new Error('No se pudo verificar la suscripción.');
   return res.json(); // { isSubscriber, planKey, billing }
 };
@@ -77,19 +103,19 @@ window.arcanaProvisionSubscriptionPlans = () => arcanaBookingCall('provision-sub
 // Acceso a lecturas (Vela/Luna/Estrella/Oráculo) — antes de generar una
 // interpretación con IA, se pregunta al backend si se puede (según el plan
 // o el límite del plan Vela gratis) y con qué tipo de respuesta.
-window.arcanaReadingAccess = (opts) => arcanaBookingCall('reading-access', opts); // { email, spread } -> { allowed, responseType, planKey } (o error con .reason)
+window.arcanaReadingAccess = (opts) => arcanaBookingCall('reading-access', opts); // { spread, preferredResponseType } -> { allowed, responseType, planKey } (o error con .reason; el email se deriva de la sesión)
 
 // Historial de lecturas + Cofre de Respuestas (2026-09-08) — antes vivían
 // solo en localStorage (se perdían al cambiar de dispositivo, y sin
 // filtro por email se mezclaban si dos perfiles usaban el mismo
 // navegador). Ahora quedan en el servidor, atadas al email de la socia.
-window.arcanaListReadings = (email) => arcanaBookingCall('list-readings', { email }); // -> { readings, migrated }
-window.arcanaSaveReading = (email, reading) => arcanaBookingCall('save-reading', { email, reading }); // -> { reading }
-window.arcanaUpdateReading = (email, id, patch) => arcanaBookingCall('update-reading', { email, id, patch }); // -> { reading }
-window.arcanaDeleteReading = (email, id) => arcanaBookingCall('delete-reading', { email, id }); // -> { ok }
+window.arcanaListReadings = () => arcanaBookingCall('list-readings', {}); // -> { readings, migrated }
+window.arcanaSaveReading = (reading) => arcanaBookingCall('save-reading', { reading }); // -> { reading }
+window.arcanaUpdateReading = (id, patch) => arcanaBookingCall('update-reading', { id, patch }); // -> { reading }
+window.arcanaDeleteReading = (id) => arcanaBookingCall('delete-reading', { id }); // -> { ok }
 // Migración de una sola vez de lo que haya en localStorage — el server
 // ignora el pedido si ya migró antes a esta socia (store.readingsMigrated).
-window.arcanaImportReadings = (email, readings) => arcanaBookingCall('import-readings', { email, readings }); // -> { readings }
+window.arcanaImportReadings = (readings) => arcanaBookingCall('import-readings', { readings }); // -> { readings }
 
 // Sesión de video mensual gratis del plan Oráculo — sin pasar por PayPal.
 window.arcanaCheckoutFree = (opts) => arcanaBookingCall('checkout-free', opts);
@@ -129,9 +155,9 @@ window.arcanaRevokeMembership = (email) => arcanaBookingCall('revoke-membership'
 
 // Cancelar membresía real desde Perfil — cancela de verdad contra PayPal
 // (o desactiva local si es ad-honores) y guarda el motivo.
-window.arcanaCancelSubscription = (opts) => arcanaBookingCall('cancel-subscription', opts); // { email, reason, reasonDetail } -> { ok, emailSent, emailError }
+window.arcanaCancelSubscription = (opts) => arcanaBookingCall('cancel-subscription', opts); // { reason, reasonDetail } -> { ok, emailSent, emailError } (el email se deriva de la sesión)
 // Oferta de retención (25% off por un ciclo más) que se ofrece al cancelar.
-window.arcanaApplyRetentionOffer = (email) => arcanaBookingCall('apply-retention-offer', { email }); // -> { ok, needsApproval, approveUrl }
+window.arcanaApplyRetentionOffer = () => arcanaBookingCall('apply-retention-offer', {}); // -> { ok, needsApproval, approveUrl }
 // Encuesta de calificación y buzón de sugerencias — van a comentarios@luxastral.com.
 window.arcanaSubmitAppRating = (opts) => arcanaBookingCall('submit-app-rating', opts); // { rating, email?, comment? }
 window.arcanaSubmitSuggestion = (opts) => arcanaBookingCall('submit-suggestion', opts); // { message, email? }
@@ -160,9 +186,10 @@ window.arcanaAdminSessions = async function () {
 
 // Visibilidad del ícono ⚙: solo dice si ESE correo puntual está en la
 // lista de power users, sin exponer la lista ni la contraseña.
-window.arcanaPowerUserStatus = async function (email) {
-  if (!email) return { isPowerUser: false };
-  const res = await fetch('/.netlify/functions/booking?action=power-user-status&email=' + encodeURIComponent(email));
+window.arcanaPowerUserStatus = async function () {
+  const token = arcanaSessionToken();
+  if (!token) return { isPowerUser: false };
+  const res = await fetch('/.netlify/functions/booking?action=power-user-status&sessionToken=' + encodeURIComponent(token));
   if (!res.ok) return { isPowerUser: false };
   return res.json(); // { isPowerUser }
 };
@@ -187,5 +214,5 @@ window.arcanaGetReports = async function () {
 
 // Registro liviano de accesos y secciones visitadas (nunca preguntas ni
 // interpretaciones). Fire-and-forget: si falla, no interrumpe nada.
-window.arcanaLogEvent = (email, page) => arcanaBookingCall('log-event', { email: email || '', page });
+window.arcanaLogEvent = (page) => arcanaBookingCall('log-event', { page }); // el email se deriva de la sesión si hay una activa
 
