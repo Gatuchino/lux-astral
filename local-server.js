@@ -850,7 +850,7 @@ async function resendSend(to, subject, html) {
     err.isConfig = true;
     throw err;
   }
-  const from = process.env.RESEND_FROM || 'Lux Astral <hola@luxastral.cl>';
+  const from = process.env.RESEND_FROM || 'Lux Astral <hola@luxastral.com>';
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
@@ -1845,7 +1845,7 @@ async function handleBooking(req, res, url) {
       const bookingId = genId('bk');
       const booking = {
         id: bookingId, tarotistId, slotId,
-        customerName: 'Prueba (sin pago)', customerEmail: 'prueba@luxastral.cl',
+        customerName: 'Prueba (sin pago)', customerEmail: 'prueba@luxastral.com',
         amount: 0, currency: 'usd', status: 'paid', paypalOrderId: 'TEST-' + bookingId,
         createdAt: new Date().toISOString(), confirmedAt: new Date().toISOString(),
         accessCode: genBookingAccessCode(),

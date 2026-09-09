@@ -523,7 +523,7 @@ async function resendSend(to: string, subject: string, html: string) {
     err.isConfig = true;
     throw err;
   }
-  const from = Netlify.env.get("RESEND_FROM") || "Lux Astral <hola@luxastral.cl>";
+  const from = Netlify.env.get("RESEND_FROM") || "Lux Astral <hola@luxastral.com>";
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },

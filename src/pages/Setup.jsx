@@ -1204,7 +1204,7 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           <div className="form-field" style={{ marginBottom: 10, maxWidth: 420 }}>
             <label>{es ? 'URL pública del sitio (para las imágenes del email)' : "Site's public URL (for the email images)"}</label>
             <input
-              placeholder="https://luxastral.cl"
+              placeholder="https://luxastral.com"
               value={bookingSettings.siteBaseUrl || ''}
               onChange={(e) => setBookingSettings((s) => ({ ...s, siteBaseUrl: e.target.value }))}
               style={{ width: '100%' }}
@@ -1360,8 +1360,8 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         </button>
         <p className="setup-hint italic">
           {es
-            ? 'Precios en USD (mismo criterio que el resto del sitio). No hay pasarela de pago real todavía — la Tienda muestra el catálogo y pide escribir a hola@luxastral.cl para comprar.'
-            : "Prices in USD (same convention as the rest of the site). There's no real payment gateway yet — the Shop page shows the catalog and asks people to write to hola@luxastral.cl to buy."}
+            ? 'Precios en USD (mismo criterio que el resto del sitio). No hay pasarela de pago real todavía — la Tienda muestra el catálogo y pide escribir a hola@luxastral.com para comprar.'
+            : "Prices in USD (same convention as the rest of the site). There's no real payment gateway yet — the Shop page shows the catalog and asks people to write to hola@luxastral.com to buy."}
         </p>
       </SetupSection>
 

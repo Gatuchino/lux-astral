@@ -1,7 +1,7 @@
 node_modules/
 .netlify/
 .env
-data/
+/data/
 Claude outputs/
 _to_delete/
 screenshots/
