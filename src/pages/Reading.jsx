@@ -291,9 +291,12 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
     const base = buildBaseInterpretation({ picked, positions, lang, question });
     try {
       const llmText = await requestLLMInterpretation({ picked, positions, lang, question, spread, angle, responseType, ticketId });
-      setInterpretation({ base, llm: llmText });
+      setInterpretation({ base, llm: llmText, error: null });
     } catch (e) {
-      setInterpretation({ base, llm: null });
+      // No tragarnos el error: si la IA falla mostramos por qué en vez de
+      // fingir que el resumen de respaldo (base) es la interpretación real.
+      const msg = (e && e.message) || (lang === 'es' ? 'Error desconocido.' : 'Unknown error.');
+      setInterpretation({ base, llm: null, error: msg });
     } finally {
       setThinking(false);
     }
@@ -743,6 +746,13 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
             {thinking && <AstralRain lang={lang} t={t} />}
             {interpretation && !thinking && (
               <div className="reveal-interp-body">
+                {interpretation.error && (
+                  <p className="reveal-followup-error">
+                    {lang === 'es'
+                      ? `No pudimos generar la interpretación con IA (mostramos un resumen básico de respaldo). Detalle: ${interpretation.error}`
+                      : `We couldn't generate the AI interpretation (showing a basic backup summary instead). Detail: ${interpretation.error}`}
+                  </p>
+                )}
                 <div className="reveal-interp-llm">
                   {(interpretation.llm || interpretation.base).split('\n\n').map((para, i) => (
                     <p key={i}>{para}</p>
