@@ -745,22 +745,26 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
             </div>
             {thinking && <AstralRain lang={lang} t={t} />}
             {interpretation && !thinking && (
-              <div className="reveal-interp-grid">
-                <ReadingCardRail picked={picked} positions={positions} lang={lang} />
-                <div className="reveal-interp-body">
-                  {interpretation.error && (
-                    <p className="reveal-followup-error">
-                      {lang === 'es'
-                        ? `No pudimos generar la interpretación con IA (mostramos un resumen básico de respaldo). Detalle: ${interpretation.error}`
-                        : `We couldn't generate the AI interpretation (showing a basic backup summary instead). Detail: ${interpretation.error}`}
-                    </p>
-                  )}
-                  <div className="reveal-interp-llm">
-                    {renderInterpretationBlocks(interpretation.llm || interpretation.base)}
+              <>
+                <ReadingSigil picked={picked} />
+                <div className="reveal-interp-grid">
+                  <ReadingCardRail picked={picked} positions={positions} lang={lang} />
+                  <div className="reveal-interp-body">
+                    {interpretation.error && (
+                      <p className="reveal-followup-error">
+                        {lang === 'es'
+                          ? `No pudimos generar la interpretación con IA (mostramos un resumen básico de respaldo). Detalle: ${interpretation.error}`
+                          : `We couldn't generate the AI interpretation (showing a basic backup summary instead). Detail: ${interpretation.error}`}
+                      </p>
+                    )}
+                    <div className="reveal-interp-llm">
+                      {renderInterpretationBlocks(interpretation.llm || interpretation.base)}
+                    </div>
+                    {speakError && <p className="reveal-followup-error">{speakError}</p>}
+                    <ReadingSignature />
                   </div>
-                  {speakError && <p className="reveal-followup-error">{speakError}</p>}
                 </div>
-              </div>
+              </>
             )}
           </div>
         )}
@@ -1209,6 +1213,92 @@ function ArcanaSectionDivider() {
       <span className="reveal-section-divider-line" />
       <span className="reveal-section-divider-glyph">✦</span>
       <span className="reveal-section-divider-line" />
+    </div>
+  );
+}
+
+// Colores por palo, para el sigilo generativo de abajo -- coherentes con
+// la paleta dorado/violeta existente (Mayores = dorado, Copas = rosa,
+// Oros = dorado oscuro, Espadas = violeta frío, Bastos = terracota).
+const SIGIL_SUIT_COLORS = {
+  major: '#d4a85a',
+  cups: '#b86a8a',
+  pentacles: '#8e6a30',
+  swords: '#9089ac',
+  wands: '#c97a4a',
+};
+
+function sigilSuitKey(card) {
+  if (!card) return 'major';
+  if (card.id < 22) return 'major';
+  const key = card.key || '';
+  if (key.includes('cup')) return 'cups';
+  if (key.includes('pentacle')) return 'pentacles';
+  if (key.includes('sword')) return 'swords';
+  if (key.includes('wand')) return 'wands';
+  return 'major';
+}
+
+// Sigilo generativo: un gráfico ÚNICO por lectura, construido a partir de
+// las cartas realmente sacadas (cantidad, palo de cada una, si salieron
+// invertidas) -- no es decoración genérica, es literalmente "un gráfico
+// creado sobre la respuesta". Cero costo/latencia extra: es puro SVG
+// calculado en el navegador, nada de IA de por medio.
+function ReadingSigil({ picked }) {
+  if (!picked || !picked.length) return null;
+  const n = picked.length;
+  const cx = 100, cy = 100, r = 68;
+  const points = picked.map((p, i) => {
+    const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+    return {
+      x: cx + r * Math.cos(angle),
+      y: cy + r * Math.sin(angle),
+      color: SIGIL_SUIT_COLORS[sigilSuitKey(p.card)] || SIGIL_SUIT_COLORS.major,
+      reversed: p.reversed,
+    };
+  });
+  const pathD = points
+    .map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
+    .join(' ') + (n > 2 ? ' Z' : '');
+  return (
+    <div className="reveal-sigil" aria-hidden="true">
+      <svg viewBox="0 0 200 200" className="reveal-sigil-svg">
+        <defs>
+          <clipPath id="sigilClip">
+            <circle cx={cx} cy={cy} r="24" />
+          </clipPath>
+          <radialGradient id="sigilGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="var(--gold-glow)" />
+            <stop offset="100%" stopColor="transparent" />
+          </radialGradient>
+        </defs>
+        <circle cx={cx} cy={cy} r={r + 22} fill="url(#sigilGlow)" />
+        {n > 1 && <path d={pathD} fill="none" stroke="var(--line-strong)" strokeWidth="1" />}
+        <circle cx={cx} cy={cy} r="27" fill="rgba(15,10,36,0.65)" stroke="var(--line-strong)" strokeWidth="1" />
+        <image href="assets/logo-mark.png" x={cx - 24} y={cy - 24} width="48" height="48" clipPath="url(#sigilClip)" />
+        {points.map((pt, i) => (
+          <circle
+            key={i}
+            cx={pt.x}
+            cy={pt.y}
+            r="7"
+            fill={pt.reversed ? 'none' : pt.color}
+            stroke={pt.color}
+            strokeWidth="2"
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// Firma de cierre: el logo de Lux Astral al final de la lectura, como un
+// sello.
+function ReadingSignature() {
+  return (
+    <div className="reveal-signature">
+      <img src="assets/logo-mark.png" alt="Lux Astral" className="reveal-signature-mark" />
+      <div className="reveal-signature-word">Lux Astral</div>
     </div>
   );
 }
@@ -2121,6 +2211,40 @@ function ReadingStyles() {
         border-color: var(--gold);
         background: rgba(212, 168, 90, 0.06);
       }
+      .reveal-sigil {
+        display: flex;
+        justify-content: center;
+        margin: 2px 0 28px;
+      }
+      .reveal-sigil-svg {
+        width: 176px;
+        height: 176px;
+        filter: drop-shadow(0 0 18px var(--gold-glow));
+      }
+      .reveal-signature {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        margin-top: 40px;
+        padding-top: 28px;
+        border-top: 1px solid var(--line);
+      }
+      .reveal-signature-mark {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        box-shadow: 0 0 16px var(--gold-glow);
+        opacity: 0.92;
+      }
+      .reveal-signature-word {
+        font-family: 'Cinzel', serif;
+        font-size: 11px;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--gold);
+        opacity: 0.85;
+      }
       .reveal-interp-grid {
         display: flex;
         flex-direction: column;
@@ -2189,18 +2313,20 @@ function ReadingStyles() {
       .reveal-section-divider {
         display: flex;
         align-items: center;
-        gap: 14px;
-        margin: 6px 0 26px;
+        gap: 20px;
+        margin: 16px 0 38px;
       }
       .reveal-section-divider-line {
         flex: 1;
         height: 1px;
-        background: linear-gradient(90deg, transparent, var(--line-strong), transparent);
+        background: linear-gradient(90deg, transparent, var(--line-strong) 30%, var(--gold-glow) 50%, var(--line-strong) 70%, transparent);
       }
       .reveal-section-divider-glyph {
         color: var(--gold);
-        font-size: 13px;
-        opacity: 0.85;
+        font-size: 26px;
+        line-height: 1;
+        opacity: 0.95;
+        text-shadow: 0 0 14px var(--gold-glow);
       }
       .reveal-interp-body {
         max-width: 680px;
