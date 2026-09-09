@@ -138,7 +138,12 @@ export default async (req: Request, context: any) => {
         prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey)
       )
     );
-    const text = texts.map((t) => (t || "").trim()).filter(Boolean).join("\n\n");
+    // Separador entre partes generadas en paralelo (ver Reading.jsx,
+    // requestLLMInterpretation): el cliente lo usa para dibujar un
+    // separador ornamental entre bloques de la lectura. Si solo hubo un
+    // prompt (Tipo 1/2, o respuesta de seguimiento) no aparece ningun
+    // separador -- el texto queda igual que antes.
+    const text = texts.map((t) => (t || "").trim()).filter(Boolean).join("\n\n§§ARCANA-SECTION§§\n\n");
     await jobsStore().setJSON(jobId, { status: "done", text, createdAt: Date.now() });
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {

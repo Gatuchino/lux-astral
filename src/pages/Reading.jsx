@@ -745,20 +745,21 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
             </div>
             {thinking && <AstralRain lang={lang} t={t} />}
             {interpretation && !thinking && (
-              <div className="reveal-interp-body">
-                {interpretation.error && (
-                  <p className="reveal-followup-error">
-                    {lang === 'es'
-                      ? `No pudimos generar la interpretación con IA (mostramos un resumen básico de respaldo). Detalle: ${interpretation.error}`
-                      : `We couldn't generate the AI interpretation (showing a basic backup summary instead). Detail: ${interpretation.error}`}
-                  </p>
-                )}
-                <div className="reveal-interp-llm">
-                  {(interpretation.llm || interpretation.base).split('\n\n').map((para, i) => (
-                    <p key={i}>{para}</p>
-                  ))}
+              <div className="reveal-interp-grid">
+                <ReadingCardRail picked={picked} positions={positions} lang={lang} />
+                <div className="reveal-interp-body">
+                  {interpretation.error && (
+                    <p className="reveal-followup-error">
+                      {lang === 'es'
+                        ? `No pudimos generar la interpretación con IA (mostramos un resumen básico de respaldo). Detalle: ${interpretation.error}`
+                        : `We couldn't generate the AI interpretation (showing a basic backup summary instead). Detail: ${interpretation.error}`}
+                    </p>
+                  )}
+                  <div className="reveal-interp-llm">
+                    {renderInterpretationBlocks(interpretation.llm || interpretation.base)}
+                  </div>
+                  {speakError && <p className="reveal-followup-error">{speakError}</p>}
                 </div>
-                {speakError && <p className="reveal-followup-error">{speakError}</p>}
               </div>
             )}
           </div>
@@ -1192,6 +1193,68 @@ function AstralRain({ lang, t }) {
         <div className="astral-rain-status italic">{t[ASTRAL_PHRASE_KEYS[phraseIdx]]}</div>
         {waitTier && <div className="astral-rain-wait italic">{t[waitTier.key]}</div>}
       </div>
+    </div>
+  );
+}
+
+// Separador entre partes generadas en paralelo (ver
+// tarot-generate-background.mts / local-server.js) -- si el texto no lo
+// tiene (Tipo 1/2, respuestas de seguimiento, o lecturas guardadas antes
+// de este cambio) simplemente no aparece ningún divisor ornamental.
+const ARCANA_SECTION_MARKER = '§§ARCANA-SECTION§§';
+
+function ArcanaSectionDivider() {
+  return (
+    <div className="reveal-section-divider" aria-hidden="true">
+      <span className="reveal-section-divider-line" />
+      <span className="reveal-section-divider-glyph">✦</span>
+      <span className="reveal-section-divider-line" />
+    </div>
+  );
+}
+
+// Arma los <p> del cuerpo de la lectura, intercalando un divisor
+// ornamental entre las partes que se generaron por separado (en paralelo)
+// para lecturas largas -- así el "bloque de texto" se ve menos plano sin
+// tocar la tipografía.
+function renderInterpretationBlocks(text) {
+  const sections = String(text || '').split(ARCANA_SECTION_MARKER).map((s) => s.trim()).filter(Boolean);
+  const nodes = [];
+  sections.forEach((section, si) => {
+    if (si > 0) nodes.push(<ArcanaSectionDivider key={`div-${si}`} />);
+    section.split('\n\n').forEach((para, pi) => {
+      const trimmed = para.trim();
+      if (trimmed) nodes.push(<p key={`p-${si}-${pi}`}>{trimmed}</p>);
+    });
+  });
+  return nodes;
+}
+
+// Tira de cartas en miniatura junto a la lectura -- funciona como "mapa"
+// visual de la tirada: en pantallas angostas es una fila arriba del
+// texto, en pantallas anchas queda fija (sticky) al costado mientras el
+// texto de la lectura fluye, unida por un hilo dorado.
+function ReadingCardRail({ picked, positions, lang }) {
+  const getArt = window.getCardArtUrl;
+  return (
+    <div className="reveal-card-rail" aria-hidden="true">
+      <div className="reveal-card-rail-thread" />
+      {picked.map((p, i) => {
+        const art = getArt ? getArt(p.card) : null;
+        const name = lang === 'es' ? p.card.name_es : p.card.name_en;
+        return (
+          <div className="reveal-card-medal" key={`${p.card.id}-${i}`} title={`${positions[i]} — ${name}`}>
+            <div
+              className={`reveal-card-medal-art ${p.reversed ? 'is-reversed' : ''}`}
+              style={art ? { backgroundImage: `url(${art})` } : {}}
+            />
+            <div className="reveal-card-medal-label">
+              <span className="reveal-card-medal-pos">{positions[i]}</span>
+              <span className="reveal-card-medal-name">{name}</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2057,6 +2120,87 @@ function ReadingStyles() {
         border-color: var(--gold);
         background: rgba(212, 168, 90, 0.06);
       }
+      .reveal-interp-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+      }
+      .reveal-card-rail {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        gap: 18px;
+        overflow-x: auto;
+        padding: 4px 4px 12px;
+      }
+      .reveal-card-rail-thread {
+        display: none;
+      }
+      .reveal-card-medal {
+        position: relative;
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        width: 64px;
+      }
+      .reveal-card-medal-art {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background-size: cover;
+        background-position: center;
+        border: 1px solid var(--line-strong);
+        box-shadow: 0 0 10px var(--gold-glow);
+        transition: box-shadow 0.25s, border-color 0.25s;
+      }
+      .reveal-card-medal-art.is-reversed {
+        transform: rotate(180deg);
+      }
+      .reveal-card-medal:hover .reveal-card-medal-art {
+        box-shadow: 0 0 18px var(--gold-glow);
+        border-color: var(--gold);
+      }
+      .reveal-card-medal-label {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        line-height: 1.25;
+      }
+      .reveal-card-medal-pos {
+        font-family: 'Cinzel', serif;
+        font-size: 8px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--gold);
+      }
+      .reveal-card-medal-name {
+        font-family: 'Cormorant Garamond', serif;
+        font-size: 11px;
+        color: var(--ink-soft);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 64px;
+      }
+      .reveal-section-divider {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 6px 0 26px;
+      }
+      .reveal-section-divider-line {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--line-strong), transparent);
+      }
+      .reveal-section-divider-glyph {
+        color: var(--gold);
+        font-size: 13px;
+        opacity: 0.85;
+      }
       .reveal-interp-body {
         max-width: 680px;
         margin: 0 auto;
@@ -2077,6 +2221,44 @@ function ReadingStyles() {
         line-height: 0.85;
         padding: 6px 10px 0 0;
         color: var(--gold);
+      }
+      @media (min-width: 1000px) {
+        .reveal-interp-grid {
+          display: grid;
+          grid-template-columns: 120px 1fr;
+          gap: 36px;
+          align-items: start;
+        }
+        .reveal-card-rail {
+          flex-direction: column;
+          overflow-x: visible;
+          padding: 4px 0;
+          position: sticky;
+          top: 24px;
+        }
+        .reveal-card-rail-thread {
+          display: block;
+          position: absolute;
+          left: 50%;
+          top: 26px;
+          bottom: 26px;
+          width: 1px;
+          transform: translateX(-50%);
+          background: linear-gradient(180deg, transparent, var(--line-strong) 15%, var(--gold-glow) 50%, var(--line-strong) 85%, transparent);
+          z-index: 0;
+        }
+        .reveal-card-medal {
+          position: relative;
+          z-index: 1;
+          width: 100%;
+        }
+        .reveal-card-medal-name {
+          max-width: 96px;
+          white-space: normal;
+        }
+        .reveal-interp-body {
+          margin: 0;
+        }
       }
 
       .reveal-thinking {

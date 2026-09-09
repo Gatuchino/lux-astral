@@ -221,7 +221,10 @@ async function handleInterpret(req, res) {
       const texts = await Promise.all(
         prompts.map((p, i) => prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey))
       );
-      const text = texts.map((t) => (t || '').trim()).filter(Boolean).join('\n\n');
+      // Mismo separador que tarot-generate-background.mts en produccion
+      // (ver comentario alli) -- para que el front dibuje el divisor
+      // ornamental entre partes tambien en desarrollo local.
+      const text = texts.map((t) => (t || '').trim()).filter(Boolean).join('\n\n§§ARCANA-SECTION§§\n\n');
       localInterpretJobs.set(jobId, { status: 'done', text, createdAt: Date.now() });
     } catch (e) {
       console.error('[tarot-interpret]', providerId, chosenModel, e.status || '', e.detail || e.message || e);
