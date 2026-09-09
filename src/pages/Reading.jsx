@@ -2300,13 +2300,19 @@ function ReadingStyles() {
       .reveal-icon-badge {
         display: flex;
         justify-content: center;
-        margin: -18px 0 24px;
+        margin: -6px 0 30px;
       }
       .reveal-icon-badge img {
-        width: 42px;
-        height: 42px;
+        width: 104px;
+        height: 104px;
         object-fit: contain;
-        filter: drop-shadow(0 0 10px var(--gold-glow));
+        filter: drop-shadow(0 0 16px var(--gold-glow));
+      }
+      @media (max-width: 520px) {
+        .reveal-icon-badge img {
+          width: 84px;
+          height: 84px;
+        }
       }
       .reveal-signature {
         display: flex;
