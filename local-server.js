@@ -1519,7 +1519,7 @@ async function handleBooking(req, res, url) {
       const email = (rawEmail || '').trim().toLowerCase();
       if (!email || !email.includes('@')) return sendJson(res, 400, { error: 'Falta un email válido.' });
       if (!HONORARY_PLAN_KEYS.includes(planKey)) {
-        return sendJson(res, 400, { error: 'Las membresías ad-honores son solo para Luna o Estrella.' });
+        return sendJson(res, 400, { error: 'Las membresías ad-honores son solo para Luna, Estrella u Oráculo.' });
       }
       let entry = store.subscribers.find((s) => s.email === email);
       if (!entry) {

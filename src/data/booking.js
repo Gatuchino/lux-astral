@@ -140,7 +140,8 @@ window.arcanaNewsletterOptIn = (email, optIn) => arcanaBookingCall('newsletter-o
 window.arcanaSendNewsletterNow = (force) => arcanaBookingCall('send-daily-newsletter', { force: !!force, origin: window.location.origin });
 window.arcanaSendAnnouncement = (subject, html) => arcanaBookingCall('send-announcement', { subject, html });
 window.arcanaListMemberships = async function () {
-  const res = await fetch('/.netlify/functions/booking?action=list-memberships');
+  const setupToken = (() => { try { return JSON.parse(sessionStorage.getItem('arcana_setup_session') || 'null')?.token || ''; } catch { return ''; } })();
+  const res = await fetch('/.netlify/functions/booking?action=list-memberships&setupToken=' + encodeURIComponent(setupToken));
   if (!res.ok) throw new Error('No se pudo cargar la lista de membresías.');
   return res.json(); // { subscribers }
 };

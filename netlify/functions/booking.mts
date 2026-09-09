@@ -1168,7 +1168,7 @@ export default async (req: Request) => {
       const email = (rawEmail || "").trim().toLowerCase();
       if (!email || !email.includes("@")) return json(400, { error: "Falta un email válido." });
       if (!HONORARY_PLAN_KEYS.includes(planKey)) {
-        return json(400, { error: "Las membresías ad-honores son solo para Luna o Estrella." });
+        return json(400, { error: "Las membresías ad-honores son solo para Luna, Estrella u Oráculo." });
       }
       let entry = store.subscribers.find((s: any) => s.email === email);
       if (!entry) {
