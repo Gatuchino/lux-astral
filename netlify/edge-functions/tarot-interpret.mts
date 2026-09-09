@@ -63,21 +63,44 @@ async function apiError(res: Response) {
 // va llenando a medida que llegan los tokens: asi ni el limite de 40s de
 // headers de la edge function ni ningun limite de duracion total del
 // cuerpo entran en juego, sin importar cuanto tarde una lectura Tipo 5.
-async function streamAnthropic(prompt: string, maxTokens: number, model: string, apiKey: string): Promise<ReadableStream<Uint8Array>> {
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, messages: [{ role: "user", content: prompt }] }),
-  });
-  if (!upstream.ok || !upstream.body) throw await apiError(upstream);
-
-  const reader = upstream.body.getReader();
-  const decoder = new TextDecoder();
+function streamAnthropic(prompt: string, maxTokens: number, model: string, apiKey: string): ReadableStream<Uint8Array> {
+  // OJO: esta funcion NO es async y NO espera al fetch de Anthropic antes
+  // de devolver el stream -- esa espera se hace adentro de start(), que
+  // corre DESPUES de que handler() ya devolvio la Response al cliente.
+  // Si esperaramos aca (como en la version anterior), los headers de
+  // nuestra propia respuesta no salen hasta que Anthropic conteste, y
+  // seguimos atados al limite de 40s de la edge function igual que con
+  // la Function clasica -- eso era el bug real detras del 500 opaco.
   const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   let buffer = "";
 
   return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, messages: [{ role: "user", content: prompt }] }),
+        });
+        if (!upstream.ok || !upstream.body) {
+          const errText = await upstream.text().catch(() => "");
+          controller.enqueue(encoder.encode(`[ANTHROPIC_ERROR ${upstream.status}]: ${errText || "sin detalle"}`));
+          controller.close();
+          return;
+        }
+        reader = upstream.body.getReader();
+      } catch (e: any) {
+        controller.enqueue(encoder.encode(`[EDGE_FETCH_ERROR]: ${String((e && e.stack) || (e && e.message) || e)}`));
+        controller.close();
+      }
+    },
     async pull(controller) {
+      if (!reader) {
+        controller.close();
+        return;
+      }
       try {
         const { done, value } = await reader.read();
         if (done) {
@@ -103,14 +126,14 @@ async function streamAnthropic(prompt: string, maxTokens: number, model: string,
           }
         }
       } catch (pullErr: any) {
-        // No dejar que esto se convierta en un 500 opaco de la plataforma:
-        // metemos el error como texto visible en el propio stream.
         controller.enqueue(encoder.encode(`\n\n[EDGE_STREAM_ERROR: ${String((pullErr && pullErr.stack) || (pullErr && pullErr.message) || pullErr)}]`));
         controller.close();
       }
     },
     cancel() {
-      try { reader.cancel(); } catch (e) {}
+      try {
+        reader && reader.cancel();
+      } catch (e) {}
     },
   });
 }
@@ -236,9 +259,9 @@ async function handler(req: Request, context: any) {
 
   try {
     if (providerId === "anthropic") {
-      // Streaming real: los headers salen apenas Anthropic confirma la
-      // conexion, el texto se va mandando a medida que se genera.
-      const stream = await streamAnthropic(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
+      // Streaming real: devolvemos la Response YA, sin esperar a Anthropic --
+      // el fetch de verdad ocurre adentro del stream (ver streamAnthropic).
+      const stream = streamAnthropic(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
       return new Response(stream, {
         status: 200,
         headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "edge" },
