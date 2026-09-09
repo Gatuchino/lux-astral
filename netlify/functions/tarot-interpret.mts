@@ -1,20 +1,21 @@
-// Edge Function (Deno) -- version de tarot-interpret que corre en el borde
-// de Netlify en vez de en una Function serverless clasica.
+// Netlify Function (Node) con respuesta en streaming.
 //
-// Por que: las Functions clasicas de Netlify tienen un limite duro de 10s
-// (sync, hasta 26s con soporte) para responder. Las lecturas Tipo 3/4/5
-// (maxTokens 1900-2400) tardan mas que eso en generarse y la plataforma
-// cortaba la respuesta con un 504 -- eso es lo que Christian vio como
-// "el resumen basico de respaldo" en vez de la interpretacion real.
-// Las Edge Functions tienen un limite de tiempo de respuesta de headers
-// de 40s, y el tiempo que se pasa esperando un fetch() (como esta llamada
-// a la IA) NO cuenta contra el limite de CPU de la edge function -- por
-// eso alcanza para las respuestas largas sin cambiar el contrato con el
-// cliente (sigue devolviendo el mismo { text } que antes).
+// Historia: esto arranco siendo una Function clasica con limite de 10s
+// (sync) para responder -- las lecturas Tipo 3/4/5 (maxTokens 1900-2400)
+// tardan mas que eso y la plataforma cortaba con un 504. Se probo mover
+// esto a una Edge Function (Deno) para aprovechar su limite de 40s, pero
+// el 500 opaco persistio de forma identica (~37s) incluso reescribiendo
+// el codigo para mandar los headers antes de llamar a la IA -- algo en
+// ese runtime no se comportaba como documentado y no hay logs a mano
+// para diagnosticarlo mas.
 //
-// Intercepta el mismo path que usaba la Function original
-// (/.netlify/functions/tarot-interpret, ver "config" al final de este
-// archivo) asi que src/pages/Reading.jsx no necesita ningun cambio.
+// Solucion real: las Functions clasicas de Netlify (este mismo runtime
+// Node que ya usan booking.mts y tarot-tts.mts sin problemas) SI
+// soportan devolver un ReadableStream como body -- y cuando lo hacen,
+// el limite pasa de 10s a 60s de ejecucion (ver docs.netlify.com/build/
+// functions/api). No hace falta Edge Functions para esto: se logra
+// streameando la respuesta de Anthropic (SSE) tal cual se generaba en
+// la version edge, pero corriendo en el runtime Node ya probado.
 import { getStore } from "@netlify/blobs";
 
 const READING_TICKET_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas -- espejo de booking.mts
@@ -59,18 +60,17 @@ async function apiError(res: Response) {
 
 // Streaming real (SSE) para Anthropic -- evita esperar la respuesta
 // completa antes de empezar a responder. Los headers de la Response
-// salen apenas Anthropic confirma la conexion (rapido), y el cuerpo se
-// va llenando a medida que llegan los tokens: asi ni el limite de 40s de
-// headers de la edge function ni ningun limite de duracion total del
-// cuerpo entran en juego, sin importar cuanto tarde una lectura Tipo 5.
+// salen apenas devolvemos el ReadableStream (ver nota mas abajo), y el
+// cuerpo se va llenando a medida que llegan los tokens: como la Response
+// es streaming, esta Function usa el limite de 60s (no el de 10s de las
+// respuestas normales), asi que alcanza sin problema para una lectura
+// Tipo 5.
 function streamAnthropic(prompt: string, maxTokens: number, model: string, apiKey: string): ReadableStream<Uint8Array> {
-  // OJO: esta funcion NO es async y NO espera al fetch de Anthropic antes
-  // de devolver el stream -- esa espera se hace adentro de start(), que
+  // Esta funcion NO es async y NO espera al fetch de Anthropic antes de
+  // devolver el stream -- esa espera se hace adentro de start(), que
   // corre DESPUES de que handler() ya devolvio la Response al cliente.
-  // Si esperaramos aca (como en la version anterior), los headers de
-  // nuestra propia respuesta no salen hasta que Anthropic conteste, y
-  // seguimos atados al limite de 40s de la edge function igual que con
-  // la Function clasica -- eso era el bug real detras del 500 opaco.
+  // Asi los headers salen de inmediato y el body se va llenando en
+  // vivo, sin importar cuanto tarde Anthropic en conectar o generar.
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -264,7 +264,7 @@ async function handler(req: Request, context: any) {
       const stream = streamAnthropic(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
       return new Response(stream, {
         status: 200,
-        headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "edge" },
+        headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "node-stream" },
       });
     }
     // OpenAI / GLM / Gemini: se sigue esperando la respuesta completa
@@ -280,7 +280,7 @@ async function handler(req: Request, context: any) {
     });
     return new Response(oneShotStream, {
       status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "edge" },
+      headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "node-stream" },
     });
   } catch (e: any) {
     return new Response(
@@ -290,22 +290,18 @@ async function handler(req: Request, context: any) {
   }
 }
 
-// Envoltorio de seguridad: cualquier excepcion no prevista (ej. algo que no
-// funcione igual entre el runtime de Node de la Function original y el
-// runtime Deno de esta Edge Function) queda como un 500 con el mensaje
-// real en vez de la pagina de error generica de Netlify -- asi el banner
-// de error que ya existe en Reading.jsx puede mostrar la causa concreta.
+// Envoltorio de seguridad: cualquier excepcion no prevista queda como un
+// 500 con el mensaje real en vez de la pagina de error generica de
+// Netlify -- asi el banner de error que ya existe en Reading.jsx puede
+// mostrar la causa concreta.
 export default async (req: Request, context: any) => {
   try {
     return await handler(req, context);
   } catch (e: any) {
     return new Response(
-      JSON.stringify({ error: "Error interno en tarot-interpret (edge).", detail: String((e && e.stack) || (e && e.message) || e) }),
-      { status: 500, headers: { "content-type": "application/json", "x-tarot-runtime": "edge" } }
+      JSON.stringify({ error: "Error interno en tarot-interpret.", detail: String((e && e.stack) || (e && e.message) || e) }),
+      { status: 500, headers: { "content-type": "application/json", "x-tarot-runtime": "node-stream" } }
     );
   }
 };
 
-export const config = {
-  path: "/.netlify/functions/tarot-interpret",
-};
