@@ -1256,7 +1256,7 @@ function buildMonthGrid(year, month) {
   return weeks;
 }
 
-function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInfo, deleteReading, updateReading }) {
+function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInfo, deleteReading, updateReading, onSignOut }) {
   const { TarotCard } = window;
   const t = window.I18N[lang];
   const es = lang === 'es';
@@ -1320,6 +1320,9 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
     reader.readAsDataURL(file);
   };
   const removePhoto = () => updateProfile({ photo: null });
+  const handleSignOut = () => {
+    if (window.confirm(t.profile_signout_confirm)) onSignOut && onSignOut();
+  };
 
   // Insignia de plan — ahora se resuelve una sola vez en App.jsx y se
   // comparte con ReadingPage (guardado automático del historial).
@@ -1785,6 +1788,9 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
           </button>
           <button className="btn btn-ghost" onClick={() => setRoute({ page: 'pricing' })}>
             ✦ {es ? 'Mejorar mi plan' : 'Upgrade'}
+          </button>
+          <button className="btn btn-ghost" onClick={handleSignOut}>
+            {t.profile_signout}
           </button>
           {planInfo && planInfo.isSubscriber && (
             <button className="btn btn-ghost profile-cancel-btn" onClick={openCancelFlow}>

@@ -58,6 +58,16 @@ function App() {
   // en cualquier momento desde Perfil.
   const [profile, setProfileState] = React.useState(() => window.getArcanaProfile());
   const updateProfile = (patch) => setProfileState(window.saveArcanaProfile(patch));
+  // Cerrar sesión: limpia el perfil local (nombre, email, foto, género) y
+  // vuelve a Onboarding, como si fuera una visitante nueva. Las lecturas
+  // ya guardadas en el servidor no se tocan -- vuelven a aparecer si carga
+  // el mismo email de nuevo.
+  const signOut = () => {
+    setProfileState(window.clearArcanaProfile());
+    setReadings([]);
+    setPlanInfo(null);
+    setRoute({ page: 'onboarding' });
+  };
   const [readings, setReadings] = React.useState([]);
   // Estado del plan (suscriptora o no, y qué plan) — se resuelve una sola
   // vez acá arriba a partir del email del perfil, y se comparte con
@@ -189,7 +199,7 @@ function App() {
     case 'philosophy':  page = <PhilosophyPage lang={lang} />; break;
     case 'about':       page = <AboutPage lang={lang} setRoute={setRoute} />; break;
     case 'merch':        page = <MerchPage lang={lang} setRoute={setRoute} />; break;
-    case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} />; break;
+    case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} onSignOut={signOut} />; break;
     case 'pricing':     page = <PricingPage lang={lang} setRoute={setRoute} />; break;
     case 'onboarding':  page = <OnboardingPage lang={lang} setRoute={setRoute} />; break;
     case 'chat':        page = <ChatPage lang={lang} setRoute={setRoute} tarotistId={route.tarotistId} />; break;

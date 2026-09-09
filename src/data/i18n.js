@@ -300,6 +300,7 @@ window.I18N = {
     profile_stats_days: "Días acompañándote",
     profile_stats_favorite: "Carta más frecuente",
     profile_signout: "Cerrar sesión",
+    profile_signout_confirm: "¿Cerrar sesión? Vas a salir como visitante nueva -- tu nombre, email y foto locales se borran de este dispositivo. Tus lecturas guardadas en el servidor no se pierden si volvés a entrar con el mismo email.",
 
     // Auth modal
     auth_login_h: "Entra a Lux Astral",
@@ -815,6 +816,7 @@ window.I18N = {
     profile_stats_days: "Days with you",
     profile_stats_favorite: "Most frequent card",
     profile_signout: "Sign out",
+    profile_signout_confirm: "Sign out? You'll return as a new visitor -- your local name, email and photo are cleared from this device. Readings saved on the server aren't lost if you sign back in with the same email.",
 
     auth_login_h: "Enter Lux Astral",
     auth_signup_h: "Create your account",

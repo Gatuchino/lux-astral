@@ -56,6 +56,18 @@ window.saveArcanaProfile = function (patch) {
   return window.getArcanaProfile();
 };
 
+// Cierra la sesión local: borra el perfil guardado (nombre, email, género,
+// foto) y el resabio del login viejo, para que la próxima vez la persona
+// entre como visitante nueva (vuelve a pasar por Onboarding). No toca el
+// idioma elegido. Las lecturas quedan guardadas en el servidor por email,
+// así que no se pierden si vuelve a cargar el mismo email más adelante.
+window.clearArcanaProfile = function () {
+  try { localStorage.removeItem('vela_onboarding'); } catch (e) {}
+  try { localStorage.removeItem('vela_user'); } catch (e) {}
+  try { localStorage.removeItem('vela_route'); } catch (e) {}
+  return window.getArcanaProfile();
+};
+
 // Línea de instrucción para prompts de IA: cómo tratar el género de quien consulta.
 // gender: 'femenino' | 'masculino' | 'no-binario' | 'prefiero-no-decir' | null
 window.arcanaGenderInstruction = function (gender, lang) {
