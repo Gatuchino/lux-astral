@@ -141,6 +141,15 @@ const PROVIDERS = {
   },
 };
 
+// tarot-interpret local sigue el mismo contrato "iniciador + sondeo" que
+// la version de Netlify (netlify/functions/tarot-interpret.mts +
+// tarot-generate-background.mts), aunque aca no hace falta background
+// function real: el servidor local no tiene limite de duracion de
+// respuesta, asi que el POST inicial dispara la llamada a la IA (sin
+// esperarla) y responde YA con {jobId}; el primer sondeo del cliente la
+// encuentra resuelta (o resolviendose) en este Map en memoria.
+const localInterpretJobs = new Map(); // jobId -> { status, text?, error?, detail?, createdAt }
+
 async function handleInterpret(req, res) {
   let body = '';
   req.on('data', (chunk) => (body += chunk));
@@ -153,6 +162,16 @@ async function handleInterpret(req, res) {
       res.end(JSON.stringify({ error: 'JSON inválido.' }));
       return;
     }
+
+    // ---- Modo "poll" ----
+    if (payload && payload.jobId) {
+      const job = localInterpretJobs.get(payload.jobId);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(job || { status: 'error', error: 'El trabajo no existe o expiro.' }));
+      return;
+    }
+
+    // ---- Modo "start" ----
     const { prompt, maxTokens, model, provider, ticketId, isFollowUp } = payload || {};
     if (!prompt || typeof prompt !== 'string') {
       res.writeHead(400, { 'content-type': 'application/json' });
@@ -182,22 +201,30 @@ async function handleInterpret(req, res) {
     const providerId = PROVIDERS[provider] ? provider : 'anthropic';
     const prov = PROVIDERS[providerId];
     const apiKey = process.env[prov.envKey];
+    const jobId = crypto.randomUUID();
     if (!apiKey) {
       const msg = `Falta ${prov.envKey} (agregala al archivo .env en esta carpeta para usar ${providerId}).`;
       console.error('[tarot-interpret]', msg);
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: msg }));
+      localInterpretJobs.set(jobId, { status: 'error', error: msg, createdAt: Date.now() });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ jobId }));
       return;
     }
     const chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
+    localInterpretJobs.set(jobId, { status: 'pending', createdAt: Date.now() });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ jobId }));
     try {
       const text = await prov.call(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ text }));
+      localInterpretJobs.set(jobId, { status: 'done', text, createdAt: Date.now() });
     } catch (e) {
       console.error('[tarot-interpret]', providerId, chosenModel, e.status || '', e.detail || e.message || e);
-      res.writeHead(e.status || 502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: `No se pudo contactar a ${providerId}.`, detail: e.detail || String((e && e.message) || e) }));
+      localInterpretJobs.set(jobId, {
+        status: 'error',
+        error: `No se pudo contactar a ${providerId}.`,
+        detail: e.detail || String((e && e.message) || e),
+        createdAt: Date.now(),
+      });
     }
   });
 }

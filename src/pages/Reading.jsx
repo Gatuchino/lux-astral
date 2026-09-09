@@ -1268,30 +1268,55 @@ Be specific to the question. Don't just list the card names mechanically. Maximu
   },
 };
 
-// La edge function de tarot-interpret devuelve el texto como stream plano
-// (no como { text } en JSON) para poder mandar los headers de la
-// respuesta apenas arranca la generacion, sin esperar a que termine --
-// asi lecturas largas (Tipo 3/4/5) no chocan con ningun limite de tiempo
-// de la plataforma. Esta funcion junta el stream completo en un string,
-// con un respaldo por si el navegador no expone res.body como stream.
-async function readTextStream(res) {
-  if (res.body && typeof res.body.getReader === 'function') {
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let text = '';
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      text += decoder.decode(value, { stream: true });
+// tarot-interpret ahora funciona como "iniciador + sondeo" (start/poll):
+// el POST inicial (sin jobId) dispara una Background Function y devuelve
+// {jobId} rapido; despues sondeamos POST {jobId} cada ~2s hasta que el
+// trabajo quede en status "done" o "error". Asi evitamos cualquier limite
+// de duracion de una respuesta HTTP normal -- la generacion real corre
+// aparte, con hasta 15 minutos de margen.
+const JOB_POLL_INTERVAL_MS = 2000;
+const JOB_POLL_MAX_ATTEMPTS = 90; // ~3 minutos de sondeo
+
+async function pollJob(jobId) {
+  for (let attempt = 0; attempt < JOB_POLL_MAX_ATTEMPTS; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+    let job = null;
+    try {
+      const res = await fetch('/.netlify/functions/tarot-interpret', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jobId }),
+      });
+      job = await res.json();
+    } catch (e) {
+      // Fallo de red puntual en un sondeo: reintentar en el proximo ciclo.
+      continue;
     }
-    text += decoder.decode();
-    return text.trim();
+    if (!job) continue;
+    if (job.status === 'done') return (job.text || '').trim();
+    if (job.status === 'error') {
+      throw new Error(job.error || 'llm job failed');
+    }
+    // status "pending": seguir esperando
   }
-  // Respaldo (navegadores viejos sin ReadableStream en fetch): tratar
-  // como texto plano de una.
-  const text = await res.text();
-  return text.trim();
+  throw new Error('La generación tardó demasiado. Probá de nuevo en un momento.');
+}
+
+async function startJob(body, fallbackErrorMessage) {
+  const res = await fetch('/.netlify/functions/tarot-interpret', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (e) {}
+  if (!res.ok || !data || !data.jobId) {
+    const detail = data ? [data.error, data.detail].filter(Boolean).join(' — ') : '';
+    throw new Error(detail || fallbackErrorMessage || ('llm request failed (' + res.status + ')'));
+  }
+  return pollJob(data.jobId);
 }
 
 async function requestLLMInterpretation({ picked, positions, lang, question, spread, angle, responseType, ticketId }) {
@@ -1338,20 +1363,10 @@ ${angleLine_en}`;
 
   const model = localStorage.getItem('arcana_setup_model') || undefined;
   const provider = localStorage.getItem('arcana_setup_provider') || undefined;
-  const res = await fetch('/.netlify/functions/tarot-interpret', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTokens: RT.maxTokens, model, provider, ticketId, isFollowUp: false }),
-  });
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const errData = await res.json();
-      detail = [errData.error, errData.detail].filter(Boolean).join(' — ');
-    } catch (e) {}
-    throw new Error(detail || 'llm request failed (' + res.status + ')');
-  }
-  return readTextStream(res);
+  return startJob(
+    { prompt, maxTokens: RT.maxTokens, model, provider, ticketId, isFollowUp: false },
+    'llm request failed'
+  );
 }
 
 async function requestFollowUpReply({ picked, extraCards, positions, lang, question, spread, interpretation, followUps, newQuestion, responseType, ticketId }) {
@@ -1401,20 +1416,10 @@ Reply as the same reader, in 1 to 3 paragraphs, warm, honest and specific to the
 
   const model = localStorage.getItem('arcana_setup_model') || undefined;
   const provider = localStorage.getItem('arcana_setup_provider') || undefined;
-  const res = await fetch('/.netlify/functions/tarot-interpret', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTokens: 900, model, provider, ticketId, isFollowUp: true }),
-  });
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const errData = await res.json();
-      detail = [errData.error, errData.detail].filter(Boolean).join(' — ');
-    } catch (e) {}
-    throw new Error(detail || 'follow-up request failed (' + res.status + ')');
-  }
-  return readTextStream(res);
+  return startJob(
+    { prompt, maxTokens: 900, model, provider, ticketId, isFollowUp: true },
+    'follow-up request failed'
+  );
 }
 
 function buildShareText({ picked, positions, lang, question, spread, interpretation, t }) {
