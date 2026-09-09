@@ -1319,7 +1319,10 @@ ${angleLine_en}`;
   });
   if (!res.ok) {
     let detail = '';
-    try { detail = (await res.json()).error; } catch (e) {}
+    try {
+      const errData = await res.json();
+      detail = [errData.error, errData.detail].filter(Boolean).join(' — ');
+    } catch (e) {}
     throw new Error(detail || 'llm request failed (' + res.status + ')');
   }
   const data = await res.json();
@@ -1380,7 +1383,10 @@ Reply as the same reader, in 1 to 3 paragraphs, warm, honest and specific to the
   });
   if (!res.ok) {
     let detail = '';
-    try { detail = (await res.json()).error; } catch (e) {}
+    try {
+      const errData = await res.json();
+      detail = [errData.error, errData.detail].filter(Boolean).join(' — ');
+    } catch (e) {}
     throw new Error(detail || 'follow-up request failed (' + res.status + ')');
   }
   const data = await res.json();

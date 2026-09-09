@@ -144,7 +144,7 @@ const PROVIDERS: Record<string, {
   },
 };
 
-export default async (req: Request, context: any) => {
+async function handler(req: Request, context: any) {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405 });
   }
@@ -186,6 +186,22 @@ export default async (req: Request, context: any) => {
     return new Response(
       JSON.stringify({ error: `No se pudo contactar a ${providerId}.`, detail: e?.detail || String((e && e.message) || e) }),
       { status: e?.status || 502 }
+    );
+  }
+}
+
+// Envoltorio de seguridad: cualquier excepcion no prevista (ej. algo que no
+// funcione igual entre el runtime de Node de la Function original y el
+// runtime Deno de esta Edge Function) queda como un 500 con el mensaje
+// real en vez de la pagina de error generica de Netlify -- asi el banner
+// de error que ya existe en Reading.jsx puede mostrar la causa concreta.
+export default async (req: Request, context: any) => {
+  try {
+    return await handler(req, context);
+  } catch (e: any) {
+    return new Response(
+      JSON.stringify({ error: "Error interno en tarot-interpret (edge).", detail: String((e && e.stack) || (e && e.message) || e) }),
+      { status: 500, headers: { "content-type": "application/json" } }
     );
   }
 };
