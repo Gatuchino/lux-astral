@@ -241,7 +241,7 @@ async function handler(req: Request, context: any) {
       const stream = await streamAnthropic(prompt, effectiveMaxTokens(providerId, maxTokens), chosenModel, apiKey);
       return new Response(stream, {
         status: 200,
-        headers: { "content-type": "text/plain; charset=utf-8" },
+        headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "edge" },
       });
     }
     // OpenAI / GLM / Gemini: se sigue esperando la respuesta completa
@@ -257,7 +257,7 @@ async function handler(req: Request, context: any) {
     });
     return new Response(oneShotStream, {
       status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
+      headers: { "content-type": "text/plain; charset=utf-8", "x-tarot-runtime": "edge" },
     });
   } catch (e: any) {
     return new Response(
@@ -278,7 +278,7 @@ export default async (req: Request, context: any) => {
   } catch (e: any) {
     return new Response(
       JSON.stringify({ error: "Error interno en tarot-interpret (edge).", detail: String((e && e.stack) || (e && e.message) || e) }),
-      { status: 500, headers: { "content-type": "application/json" } }
+      { status: 500, headers: { "content-type": "application/json", "x-tarot-runtime": "edge" } }
     );
   }
 };
