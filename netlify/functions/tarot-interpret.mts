@@ -15,14 +15,14 @@ import { getStore } from "@netlify/blobs";
 const READING_TICKET_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas -- espejo de booking.mts
 
 async function loadBookingStoreForTicket() {
-  const store = getStore("booking");
+  const store = getStore({ name: "booking", consistency: "strong" });
   const raw = await store.get("state", { type: "json" });
   if (!raw || typeof raw !== "object") return { readingTickets: {} as Record<string, any> };
   if (!raw.readingTickets || typeof raw.readingTickets !== "object") raw.readingTickets = {};
   return raw;
 }
 async function saveBookingStoreForTicket(data: any) {
-  const store = getStore("booking");
+  const store = getStore({ name: "booking", consistency: "strong" });
   await store.setJSON("state", data);
 }
 async function consumeReadingTicket(ticketId: string | undefined, isFollowUp: boolean) {

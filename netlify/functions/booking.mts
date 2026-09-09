@@ -184,7 +184,7 @@ function seedStore() {
 }
 
 async function loadStore() {
-  const store = getStore("booking");
+  const store = getStore({ name: "booking", consistency: "strong" });
   const raw = await store.get("state", { type: "json" });
   if (!raw) {
     const fresh = seedStore();
@@ -221,7 +221,7 @@ async function loadStore() {
 }
 
 async function saveStore(data: any) {
-  const store = getStore("booking");
+  const store = getStore({ name: "booking", consistency: "strong" });
   await store.setJSON("state", data);
 }
 
