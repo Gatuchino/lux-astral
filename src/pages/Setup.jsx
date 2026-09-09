@@ -1071,8 +1071,8 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       <SetupSection
         title={es ? 'Membresías' : 'Memberships'}
         desc={es
-          ? 'Otorgá una membresía Luna o Estrella sin costo (ad-honores) a un email. La persona recibe un link de activación (por email si Resend está configurado, o lo copiás y se lo mandás vos) que termina en una página de bienvenida.'
-          : "Grant a free (honorary) Luna or Estrella membership to an email. The person gets an activation link (by email if Resend is configured, or you copy it and send it yourself) that ends on a welcome page."}
+          ? 'Otorgá una membresía Luna, Estrella u Oráculo sin costo (ad-honores) a un email. La persona recibe un link de activación (por email si Resend está configurado, o lo copiás y se lo mandás vos) que termina en una página de bienvenida.'
+          : "Grant a free (honorary) Luna, Estrella or Oráculo membership to an email. The person gets an activation link (by email if Resend is configured, or you copy it and send it yourself) that ends on a welcome page."}
       >
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input
@@ -1085,6 +1085,7 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           <select value={grantForm.planKey} onChange={(e) => setGrantForm((f) => ({ ...f, planKey: e.target.value }))}>
             <option value="luna">Luna</option>
             <option value="estrella">Estrella</option>
+            <option value="oraculo">Oráculo</option>
           </select>
           <button className="btn btn-primary" onClick={grantMembership} disabled={grantLoading}>
             {grantLoading ? (es ? 'Otorgando…' : 'Granting…') : (es ? 'Otorgar membresía' : 'Grant membership')}

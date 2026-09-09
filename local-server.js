@@ -841,7 +841,7 @@ async function checkOraculoFreeSlot(store, email) {
 // pagan de verdad), y un boletín diario opcional por email. Cero SDK:
 // Resend se llama con fetch crudo, misma filosofía que PayPal/Daily.
 // =====================================================================
-const HONORARY_PLAN_KEYS = ['luna', 'estrella']; // Oráculo no se regala ad-honores
+const HONORARY_PLAN_KEYS = ['luna', 'estrella', 'oraculo'];
 
 async function resendSend(to, subject, html) {
   const key = process.env.RESEND_API_KEY;

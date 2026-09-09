@@ -514,7 +514,7 @@ async function checkOraculoFreeSlot(store: any, email: string) {
 // el comentario completo, misma lógica acá (Netlify.env.get en vez de
 // process.env, Blobs en vez de JSON en disco).
 // =====================================================================
-const HONORARY_PLAN_KEYS = ["luna", "estrella"];
+const HONORARY_PLAN_KEYS = ["luna", "estrella", "oraculo"];
 
 async function resendSend(to: string, subject: string, html: string) {
   const key = Netlify.env.get("RESEND_API_KEY");
