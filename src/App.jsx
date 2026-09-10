@@ -46,6 +46,13 @@ function App() {
         try { window.history.replaceState({}, '', window.location.pathname); } catch {}
         return { page: 'welcome', token: activateToken };
       }
+      const verifyToken = params.get('verify');
+      if (verifyToken) {
+        // Mismo patrón que "activate" -- confirma el email de un signup
+        // recién hecho (ver arcanaVerifyEmail) y manda a WelcomePage.
+        try { window.history.replaceState({}, '', window.location.pathname); } catch {}
+        return { page: 'welcome', verifyToken };
+      }
     } catch {}
     try {
       const saved = JSON.parse(localStorage.getItem('vela_route') || 'null');
@@ -57,12 +64,13 @@ function App() {
   // depende de ningún login: se completa en Onboarding y se puede editar
   // en cualquier momento desde Perfil.
   const [profile, setProfileState] = React.useState(() => window.getArcanaProfile());
-  // 2026-09-09 (a pedido de Christian): cuentas reales obligatorias desde
-  // el primer ingreso -- ver AuthModal.jsx y netlify/functions/booking.mts
-  // (acciones signup/login/whoami). Antes cualquiera podía escribir
-  // cualquier email en un campo de texto y el backend se lo creía; ahora
-  // antes de mostrar nada validamos el token guardado contra el servidor
-  // (mismo patrón que ya usaba Setup.jsx para su propia sesión de admin).
+  // 2026-09-09/10 (a pedido de Christian): cuentas reales -- ver
+  // AuthModal.jsx y netlify/functions/booking.mts (acciones signup/login/
+  // whoami/verify-email). Ya no se exige login para navegar el sitio; acá
+  // solo validamos el token guardado contra el servidor para saber si hay
+  // una sesión vigente (mismo patrón que ya usaba Setup.jsx para su propia
+  // sesión de admin). requireAuth() más abajo abre el modal recién cuando
+  // hace falta (por ejemplo al iniciar una consulta).
   const [authChecked, setAuthChecked] = React.useState(false);
   React.useEffect(() => {
     if (!profile.token) { setAuthChecked(true); return; }
@@ -81,6 +89,15 @@ function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // 2026-09-10 (a pedido de Christian): login/registro puntual, no un
+  // portón de entrada -- requireAuth(cb) llama a `cb` directo si ya hay
+  // sesión, o abre el modal y recién llama a `cb` cuando se completa un
+  // login/signup exitoso (por ejemplo, al querer iniciar una consulta).
+  const [authModal, setAuthModal] = React.useState(null);
+  const requireAuth = (onSuccess) => {
+    if (profile.loggedIn) { onSuccess(profile); return; }
+    setAuthModal({ onSuccess });
+  };
   const updateProfile = (patch) => {
     const next = window.saveArcanaProfile(patch);
     setProfileState(next);
@@ -214,27 +231,14 @@ function App() {
     return window.TAROT_CARDS.major[idx];
   }, []);
 
-  // 2026-09-09: portón de entrada obligatorio -- nadie ve ninguna página
-  // (ni siquiera Home) sin una cuenta real vigente. Mientras se valida el
-  // token guardado no se muestra nada más que el fondo animado, para
-  // evitar el parpadeo de "Home" antes de caer al login.
+  // 2026-09-10 (a pedido de Christian): el sitio se navega libremente sin
+  // cuenta -- ya no hay portón. Solo esperamos a que termine de validarse
+  // el token guardado (authChecked) para evitar el parpadeo de "invitada"
+  // antes de que se confirme una sesión vigente.
   if (!authChecked) {
     return (
       <window.ArcanaVariantsCtx.Provider value={variants}>
         <Starfield />
-      </window.ArcanaVariantsCtx.Provider>
-    );
-  }
-  if (!profile.loggedIn) {
-    return (
-      <window.ArcanaVariantsCtx.Provider value={variants}>
-        <Starfield />
-        <window.AuthModal
-          lang={lang}
-          dismissible={false}
-          onClose={() => {}}
-          onAuth={(p) => { setProfileState(p); setRoute({ page: 'home' }); }}
-        />
       </window.ArcanaVariantsCtx.Provider>
     );
   }
@@ -248,7 +252,7 @@ function App() {
   switch (route.page) {
     case 'home':        page = <HomePage lang={lang} setRoute={setRoute} dailyCard={dailyCard} />; break;
     case 'readings':    page = <ReadingsPage lang={lang} setRoute={setRoute} />; break;
-    case 'reading':     page = <ReadingPage lang={lang} setRoute={setRoute} spread={route.spread || 'three'} saveReading={saveReading} planInfo={planInfo} profile={profile} updateReading={updateReading} resumeReading={route.resumeReading || null} />; break;
+    case 'reading':     page = <ReadingPage lang={lang} setRoute={setRoute} spread={route.spread || 'three'} saveReading={saveReading} planInfo={planInfo} profile={profile} updateReading={updateReading} resumeReading={route.resumeReading || null} requireAuth={requireAuth} />; break;
     case 'library':     page = <LibraryPage lang={lang} />; break;
     case 'chart':       page = <ChartPage lang={lang} />; break;
     case 'moon':        page = <MoonPage lang={lang} />; break;
@@ -256,14 +260,14 @@ function App() {
     case 'philosophy':  page = <PhilosophyPage lang={lang} />; break;
     case 'about':       page = <AboutPage lang={lang} setRoute={setRoute} />; break;
     case 'merch':        page = <MerchPage lang={lang} setRoute={setRoute} />; break;
-    case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} onSignOut={signOut} />; break;
+    case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} onSignOut={signOut} requireAuth={requireAuth} />; break;
     case 'pricing':     page = <PricingPage lang={lang} setRoute={setRoute} profile={profile} />; break;
     case 'onboarding':  page = <OnboardingPage lang={lang} setRoute={setRoute} />; break;
     case 'chat':        page = <ChatPage lang={lang} setRoute={setRoute} tarotistId={route.tarotistId} />; break;
     case 'videocall':   page = <VideoCallPage lang={lang} setRoute={setRoute} accessCode={route.accessCode} />; break;
     case 'mybookings':  page = <MyBookingsPage lang={lang} setRoute={setRoute} />; break;
     case 'setup':        page = <SetupPage lang={lang} setRoute={setRoute} variants={variants} setVariant={setVariant} profile={profile} isPowerUser={isPowerUser} />; break;
-    case 'welcome':     page = <WelcomePage lang={lang} setRoute={setRoute} token={route.token} email={route.email} planKey={route.planKey} source={route.source} />; break;
+    case 'welcome':     page = <WelcomePage lang={lang} setRoute={setRoute} token={route.token} verifyToken={route.verifyToken} email={route.email} planKey={route.planKey} source={route.source} onAuthenticated={(p) => setProfileState(p)} />; break;
     default:            page = <HomePage lang={lang} setRoute={setRoute} dailyCard={dailyCard} />;
   }
 
@@ -323,12 +327,26 @@ function App() {
           setLang={setLang}
           profile={profile}
           isPowerUser={isPowerUser}
+          onOpenAuth={() => requireAuth(() => {})}
         />
       )}
       <main key={route.page + (route.spread || '') + (route.tarotistId || '')}>
         {page}
       </main>
       {tweaksUI}
+      {authModal && (
+        <window.AuthModal
+          lang={lang}
+          dismissible={true}
+          onClose={() => setAuthModal(null)}
+          onAuth={(p) => {
+            setProfileState(p);
+            const cb = authModal.onSuccess;
+            setAuthModal(null);
+            if (cb) cb(p);
+          }}
+        />
+      )}
     </window.ArcanaVariantsCtx.Provider>
   );
 }

@@ -1,12 +1,19 @@
-// 2026-09-09 (a pedido de Christian): login/signup real con cuentas
+// 2026-09-09/10 (a pedido de Christian): login/signup real con cuentas
 // verdaderas (email + contraseña) contra el backend -- ver
-// netlify/functions/booking.mts (acciones "signup"/"login") y
-// src/data/profile.js (window.saveArcanaSession). Antes este modal era
-// puramente decorativo: "creaba una cuenta" con cualquier email sin
-// pedir ni validar contraseña, y ni siquiera estaba conectado a ninguna
-// pantalla. Ahora es el único portón de entrada al sitio (ver el gate
-// obligatorio en App.jsx) -- se le puede pasar dismissible={false} para
-// que no se pueda cerrar sin iniciar sesión.
+// netlify/functions/booking.mts (acciones "signup"/"login"/"verify-email")
+// y src/data/profile.js (window.saveArcanaSession).
+//
+// El signup YA NO inicia sesión al toque: manda un email con un link de
+// confirmación (verify-email) y hasta que no se hace clic ahí no existe
+// una cuenta real -- así nadie puede "reservarse" el email de otra
+// persona con un signup que nunca confirma. Mientras tanto este modal
+// muestra una pantalla de "revisá tu email".
+//
+// Navegar el sitio ya NO requiere estar logeada (ver App.jsx) -- este
+// modal se abre puntualmente: desde el botón "Registro / Iniciar sesión"
+// del Nav, o cuando alguien intenta hacer una consulta sin sesión (ver
+// requireAuth en App.jsx). dismissible={false} lo deja fijo (sin poder
+// cerrarlo) para los pocos casos donde de verdad hace falta.
 function AuthModal({ lang, onClose, onAuth, dismissible }) {
   const t = window.I18N[lang];
   const canDismiss = dismissible !== false;
@@ -17,11 +24,13 @@ function AuthModal({ lang, onClose, onAuth, dismissible }) {
   const [gender, setGender] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [pendingEmail, setPendingEmail] = React.useState(''); // no vacío = "revisá tu email"
   const isSignup = mode === 'signup';
 
   const switchMode = (next) => {
     setMode(next);
     setError('');
+    setPendingEmail('');
   };
 
   const submit = (e) => {
@@ -39,10 +48,14 @@ function AuthModal({ lang, onClose, onAuth, dismissible }) {
     }
     setBusy(true);
     const call = isSignup
-      ? window.arcanaSignup({ email: em, password, name: name.trim(), gender: gender || null })
+      ? window.arcanaSignup({ email: em, password, name: name.trim(), gender: gender || null, lang })
       : window.arcanaLogin({ email: em, password });
     call
       .then((res) => {
+        if (isSignup && res && res.pendingVerification) {
+          setPendingEmail(em);
+          return;
+        }
         const profile = window.saveArcanaSession(res);
         onAuth(profile);
         if (canDismiss) onClose();
@@ -52,6 +65,29 @@ function AuthModal({ lang, onClose, onAuth, dismissible }) {
       })
       .finally(() => setBusy(false));
   };
+
+  if (pendingEmail) {
+    return (
+      <div className="modal-overlay" onClick={canDismiss ? onClose : undefined}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          {canDismiss && <button className="modal-close" onClick={onClose}>✕</button>}
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Lux Astral</div>
+          <h2 style={{ fontSize: 24, marginBottom: 10 }}>{t.auth_verify_h}</h2>
+          <p style={{ color: 'var(--ink-soft)', lineHeight: 1.6 }}>
+            {t.auth_verify_body.replace('{email}', pendingEmail)}
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: '100%', marginTop: 20 }}
+            onClick={() => switchMode('login')}
+          >
+            {t.auth_switch_to_login}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={canDismiss ? onClose : undefined}>

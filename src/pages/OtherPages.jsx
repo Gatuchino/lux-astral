@@ -1263,7 +1263,7 @@ function buildMonthGrid(year, month) {
   return weeks;
 }
 
-function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInfo, deleteReading, updateReading, onSignOut }) {
+function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInfo, deleteReading, updateReading, onSignOut, requireAuth }) {
   const { TarotCard } = window;
   const t = window.I18N[lang];
   const es = lang === 'es';
@@ -1513,6 +1513,28 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
   };
   const onArchive = (id, tag) => updateReading(id, { tag: tag || null });
   const onToggleSpecial = (id, val, label) => updateReading(id, { special: val, specialLabel: val ? (label || null) : null });
+
+  // 2026-09-10 (a pedido de Christian): Perfil ya se puede visitar sin
+  // login (navegar el sitio es libre) -- pero no hay nada que mostrar
+  // sin una cuenta real, así que invitamos a registrarse/iniciar sesión
+  // en vez de renderizar el resto de esta página vacío/roto.
+  if (!(profile && profile.loggedIn)) {
+    return (
+      <div className="page profile-page">
+        <div className="profile-hero" style={{ textAlign: 'center' }}>
+          <h1 className="welcome-h">{t.profile_login_required_h}</h1>
+          <p className="italic" style={{ marginTop: 10 }}>{t.profile_login_required_body}</p>
+          <button
+            className="btn btn-primary btn-lg"
+            style={{ marginTop: 22 }}
+            onClick={() => requireAuth && requireAuth(() => setRoute({ page: 'profile' }))}
+          >
+            {t.profile_login_required_cta}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page profile-page">
@@ -3285,13 +3307,13 @@ function MyBookingsPage({ lang, setRoute }) {
 // reales de PayPal (PricingPage navega directo con email/planKey después
 // de confirmar el pago). Ver acciones "activate-membership" /
 // "newsletter-optin" en local-server.js / booking.mts.
-function WelcomePage({ lang, setRoute, token, email: routeEmail, planKey: routePlanKey, source: routeSource }) {
+function WelcomePage({ lang, setRoute, token, verifyToken, email: routeEmail, planKey: routePlanKey, source: routeSource, onAuthenticated }) {
   const t = window.I18N[lang];
   const es = lang === 'es';
   const Logo = window.ArcanaLogo;
-  const [state, setState] = React.useState(token ? 'loading' : 'ready'); // loading | ready | error
+  const [state, setState] = React.useState((token || verifyToken) ? 'loading' : 'ready'); // loading | ready | error
   const [info, setInfo] = React.useState(
-    token ? null : { email: routeEmail, planKey: routePlanKey, source: routeSource }
+    (token || verifyToken) ? null : { email: routeEmail, planKey: routePlanKey, source: routeSource }
   );
   const [optIn, setOptIn] = React.useState(false);
   const [optInSaved, setOptInSaved] = React.useState(false);
@@ -3305,6 +3327,23 @@ function WelcomePage({ lang, setRoute, token, email: routeEmail, planKey: routeP
       .then((res) => { setInfo(res); setState('ready'); })
       .catch(() => setState('error'));
   }, [token]);
+
+  // 2026-09-10 (a pedido de Christian): este es el primer acceso ya
+  // logeado después de confirmar el email de un signup nuevo (ver
+  // App.jsx, ruta ?verify=TOKEN). Reusa toda esta pantalla de bienvenida
+  // -- mismo texto/beneficios que ya mostraba para membresías ad-honores
+  // -- solo que acá la cuenta recién se crea y se logea en este momento.
+  React.useEffect(() => {
+    if (!verifyToken) return;
+    window.arcanaVerifyEmail(verifyToken)
+      .then((res) => {
+        const profile = window.saveArcanaSession(res);
+        if (onAuthenticated) onAuthenticated(profile);
+        setInfo({ email: profile.email, planKey: 'vela', source: 'verified-signup' });
+        setState('ready');
+      })
+      .catch(() => setState('error'));
+  }, [verifyToken]);
 
   // El email de la membresía (ad-honores o suscripción paga) alimenta el
   // Perfil local — así el nombre que carguen acá viaja con el resto de sus

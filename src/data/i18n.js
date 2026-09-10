@@ -11,6 +11,7 @@ window.I18N = {
     nav_merch: "Tienda",
     nav_philosophy: "Filosofía",
     nav_profile: "Perfil",
+    nav_login: "Registro / Iniciar sesión",
     nav_login: "Entrar",
     nav_signup: "Registrarse",
 
@@ -301,6 +302,9 @@ window.I18N = {
     profile_stats_favorite: "Carta más frecuente",
     profile_signout: "Cerrar sesión",
     profile_signout_confirm: "¿Cerrar sesión? Vas a salir como visitante nueva -- tu nombre, email y foto locales se borran de este dispositivo. Tus lecturas guardadas en el servidor no se pierden si volvés a entrar con el mismo email.",
+    profile_login_required_h: "Iniciá sesión para ver tu perfil",
+    profile_login_required_body: "Creá tu cuenta o iniciá sesión para ver tu plan, tu historial de lecturas y tus datos.",
+    profile_login_required_cta: "Registro / Iniciar sesión",
 
     // Auth modal
     auth_login_h: "Entra a Lux Astral",
@@ -321,6 +325,8 @@ window.I18N = {
     auth_error_password_short: "La contraseña tiene que tener al menos 6 caracteres.",
     auth_error_generic: "Algo salió mal. Probá de nuevo en un momento.",
     auth_gate_intro: "Creá tu cuenta o iniciá sesión para continuar. Así tu plan y tu historial de lecturas quedan protegidos, y nadie más puede acceder a ellos escribiendo tu email.",
+    auth_verify_h: "Revisá tu email",
+    auth_verify_body: "Te mandamos un link de confirmación a {email}. Hacé clic ahí para activar tu cuenta y empezar a usar Lux Astral.",
 
     // Misc
     back: "Volver",
@@ -540,6 +546,7 @@ window.I18N = {
     nav_merch: "Shop",
     nav_philosophy: "Philosophy",
     nav_profile: "Profile",
+    nav_login: "Sign up / Log in",
     nav_login: "Sign in",
     nav_signup: "Sign up",
 
@@ -823,6 +830,9 @@ window.I18N = {
     profile_stats_favorite: "Most frequent card",
     profile_signout: "Sign out",
     profile_signout_confirm: "Sign out? You'll return as a new visitor -- your local name, email and photo are cleared from this device. Readings saved on the server aren't lost if you sign back in with the same email.",
+    profile_login_required_h: "Sign in to see your profile",
+    profile_login_required_body: "Create an account or sign in to see your plan, your reading history and your data.",
+    profile_login_required_cta: "Sign up / Log in",
 
     auth_login_h: "Enter Lux Astral",
     auth_signup_h: "Create your account",
@@ -842,6 +852,8 @@ window.I18N = {
     auth_error_password_short: "Password must be at least 6 characters.",
     auth_error_generic: "Something went wrong. Please try again in a moment.",
     auth_gate_intro: "Create an account or sign in to continue. This keeps your plan and reading history protected, so no one else can access them just by typing your email.",
+    auth_verify_h: "Check your email",
+    auth_verify_body: "We sent a confirmation link to {email}. Click it to activate your account and start using Lux Astral.",
 
     back: "Back",
     close: "Close",

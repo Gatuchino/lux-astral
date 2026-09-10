@@ -56,8 +56,15 @@ window.arcanaFetchTarotistas = async function () {
 
 // Cuentas reales (email + contraseña), obligatorias desde el primer
 // ingreso -- ver App.jsx (gate de autenticación) y AuthModal.jsx.
-window.arcanaSignup = (opts) => arcanaBookingCall('signup', opts); // { email, password, name, gender } -> { ok, token, user }
+// 2026-09-10: el signup ya no crea sesión al toque -- manda un email de
+// verificación y devuelve { ok, pendingVerification: true }; la cuenta
+// (y la sesión) recién se crea cuando se confirma el link con
+// arcanaVerifyEmail. `origin` (window.location.origin) es necesario para
+// armar ese link -- el backend no tiene forma de saber solo el dominio
+// donde vive el sitio publicado.
+window.arcanaSignup = (opts) => arcanaBookingCall('signup', { origin: window.location.origin, ...opts }); // { email, password, name, gender, lang } -> { ok, pendingVerification, emailSent }
 window.arcanaLogin = (opts) => arcanaBookingCall('login', opts); // { email, password } -> { ok, token, user }
+window.arcanaVerifyEmail = (token) => arcanaBookingCall('verify-email', { token }); // -> { ok, token, user }
 window.arcanaLogout = () => arcanaBookingCall('logout', {});
 window.arcanaWhoAmI = async function () {
   const token = arcanaSessionToken();

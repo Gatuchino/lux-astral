@@ -65,6 +65,15 @@ const ARCANA_SETUP_PASSWORD = Netlify.env.get("ARCANA_SETUP_PASSWORD") || "";
 // por usuaria) -- mas fuerte que el hash unico de setup porque aca cada
 // persona tiene su propio secreto, no una sola contrasena compartida.
 const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+// 2026-09-10 (a pedido de Christian): verificacion de email real. El
+// signup ya NO crea la cuenta ni una sesion -- guarda un "pendingSignup"
+// (contrasena ya hasheada + token) y manda un email con un link; la
+// cuenta recien se crea en store.users cuando esa persona hace click en
+// el link (accion "verify-email"). Asi nadie puede "robarse" un email
+// ajeno con un signup que nunca confirma -- y si alguien lo intenta, la
+// dueña real del email puede volver a registrarse despues (pisa el
+// pendingSignup viejo con uno nuevo, invalidando el link del impostor).
+const PENDING_SIGNUP_TTL_MS = 48 * 60 * 60 * 1000; // 48 horas
 
 async function hashSetupPassword(pw: string): Promise<string> {
   const enc = new TextEncoder().encode(String(pw || ""));
@@ -187,6 +196,12 @@ function pruneUserSessions(store: any) {
     if (now - store.userSessions[token].createdAt > USER_SESSION_TTL_MS) delete store.userSessions[token];
   }
 }
+function prunePendingSignups(store: any) {
+  const now = Date.now();
+  for (const email of Object.keys(store.pendingSignups)) {
+    if (now - store.pendingSignups[email].createdAt > PENDING_SIGNUP_TTL_MS) delete store.pendingSignups[email];
+  }
+}
 // Devuelve el email autorizado via un sessionToken vigente, o null. Esta
 // es LA funcion que cierra el hueco de seguridad: nunca confiar en
 // payload.email/customerEmail para nada sensible, siempre pasar por aca.
@@ -246,6 +261,7 @@ function seedStore() {
     eventLog: [] as any[],
     users: [] as any[],
     userSessions: {} as Record<string, any>,
+    pendingSignups: {} as Record<string, any>,
   };
 }
 
@@ -274,6 +290,7 @@ async function loadStore() {
   if (!Array.isArray(raw.eventLog)) raw.eventLog = [];
   if (!Array.isArray(raw.users)) raw.users = [];
   if (!raw.userSessions || typeof raw.userSessions !== "object") raw.userSessions = {};
+  if (!raw.pendingSignups || typeof raw.pendingSignups !== "object") raw.pendingSignups = {};
   if (!raw.settings.setupPasswordHash) {
     raw.settings.setupPasswordHash = await hashSetupPassword(DEFAULT_SETUP_PASSWORD);
   }
@@ -605,6 +622,19 @@ async function resendSend(to: string, subject: string, html: string) {
     throw err;
   }
   return data;
+}
+
+function verifyEmailHtml(verifyUrl: string, es: boolean) {
+  const title = es ? "Confirma tu email" : "Confirm your email";
+  const body = es
+    ? "Hace clic abajo para confirmar tu cuenta en Lux Astral y empezar a usarla."
+    : "Click below to confirm your Lux Astral account and start using it.";
+  const cta = es ? "Confirmar mi email" : "Confirm my email";
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;text-align:center;">
+    <h1 style="color:#d4a85a;font-size:22px;">${title}</h1>
+    <p style="font-size:15px;line-height:1.6;max-width:420px;margin:16px auto;">${body}</p>
+    <a href="${verifyUrl}" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#d4a85a;color:#0f0a24;text-decoration:none;border-radius:8px;font-weight:bold;">${cta}</a>
+  </div>`;
 }
 
 function activationEmailHtml(planKey: string, activationUrl: string, es: boolean) {
@@ -969,19 +999,52 @@ export default async (req: Request) => {
       const pw = String(payload.password || "");
       const name = (payload.name || "").trim().slice(0, 80);
       const gender = payload.gender ? String(payload.gender).slice(0, 20) : null;
+      const lang = payload.lang === "en" ? "en" : "es";
       if (!email || !email.includes("@")) return json(400, { error: "Escribi un email valido." });
       if (pw.length < 6) return json(400, { error: "La contrasena tiene que tener al menos 6 caracteres." });
       if (findUserByEmail(store, email)) {
         return json(409, { error: "Ya existe una cuenta con ese email. Inicia sesion." });
       }
+      prunePendingSignups(store);
       const { hash, salt } = await hashAccountPassword(pw);
-      store.users.push({ email, passwordHash: hash, passwordSalt: salt, name, gender, photo: null, createdAt: new Date().toISOString() });
-      pruneUserSessions(store);
-      const token = crypto.randomUUID();
-      store.userSessions[token] = { email, createdAt: Date.now() };
-      logEvent(store, { email, type: "signup", detail: {} });
+      const verifyToken = crypto.randomUUID();
+      store.pendingSignups[email] = { passwordHash: hash, passwordSalt: salt, name, gender, verifyToken, createdAt: Date.now() };
       await saveStore(store);
-      return json(200, { ok: true, token, user: publicUser(store, email) });
+      const base = (payload.origin || "").replace(/\/$/, "");
+      const verifyUrl = `${base}/Arcana.html?verify=${verifyToken}`;
+      let emailSent = false;
+      let emailError = "";
+      try {
+        await resendSend(
+          email,
+          lang === "en" ? "Confirm your email -- Lux Astral" : "Confirma tu email -- Lux Astral",
+          verifyEmailHtml(verifyUrl, lang !== "en")
+        );
+        emailSent = true;
+      } catch (e: any) {
+        emailError = e.isConfig ? e.message : (e.detail && e.detail.message) || e.message || "No se pudo enviar el email.";
+      }
+      return json(200, { ok: true, pendingVerification: true, emailSent, emailError });
+    }
+
+    if (action === "verify-email") {
+      const token = String(payload.token || "");
+      if (!token) return json(400, { error: "Falta el token de verificacion." });
+      prunePendingSignups(store);
+      const matchedEmail = Object.keys(store.pendingSignups).find((e) => store.pendingSignups[e].verifyToken === token);
+      if (!matchedEmail) return json(404, { error: "Este link ya no es valido." });
+      const pending = store.pendingSignups[matchedEmail];
+      delete store.pendingSignups[matchedEmail];
+      store.users.push({
+        email: matchedEmail, passwordHash: pending.passwordHash, passwordSalt: pending.passwordSalt,
+        name: pending.name || "", gender: pending.gender || null, photo: null, createdAt: new Date().toISOString(),
+      });
+      pruneUserSessions(store);
+      const sessionToken = crypto.randomUUID();
+      store.userSessions[sessionToken] = { email: matchedEmail, createdAt: Date.now() };
+      logEvent(store, { email: matchedEmail, type: "signup", detail: {} });
+      await saveStore(store);
+      return json(200, { ok: true, token: sessionToken, user: publicUser(store, matchedEmail) });
     }
 
     if (action === "login") {
@@ -989,6 +1052,10 @@ export default async (req: Request) => {
       const pw = String(payload.password || "");
       const user = findUserByEmail(store, email);
       if (!user || !(await verifyAccountPassword(pw, user.passwordSalt, user.passwordHash))) {
+        prunePendingSignups(store);
+        if (!user && store.pendingSignups[email]) {
+          return json(401, { error: "Todavia no confirmaste tu email -- revisa tu bandeja de entrada (o spam) y hace clic en el link que te mandamos." });
+        }
         return json(401, { error: "Email o contrasena incorrectos." });
       }
       pruneUserSessions(store);

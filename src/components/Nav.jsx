@@ -15,7 +15,7 @@ const NAV_ICONS = {
   about:       'assets/nav/nav-about.png',
 };
 
-function Nav({ route, setRoute, lang, setLang, profile, isPowerUser }) {
+function Nav({ route, setRoute, lang, setLang, profile, isPowerUser, onOpenAuth }) {
   const t = window.I18N[lang];
   const Logo = window.ArcanaLogo;
   const links = [
@@ -64,25 +64,35 @@ function Nav({ route, setRoute, lang, setLang, profile, isPowerUser }) {
           <button className={lang === 'es' ? 'is-active' : ''} onClick={() => setLang('es')}>ES</button>
           <button className={lang === 'en' ? 'is-active' : ''} onClick={() => setLang('en')}>EN</button>
         </div>
-        <button
-          className="btn btn-ghost"
-          style={{ padding: '6px 16px 6px 6px', display: 'flex', alignItems: 'center', gap: 8 }}
-          onClick={() => setRoute({ page: 'profile' })}
-        >
-          <span
-            style={{
-              width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: "'Cinzel', serif", fontSize: 12, color: 'var(--bg)',
-              background: (profile && profile.photo)
-                ? `center/cover url(${profile.photo})`
-                : 'radial-gradient(circle at 30% 30%, var(--gold), var(--gold-deep))',
-            }}
+        {profile && profile.loggedIn ? (
+          <button
+            className="btn btn-ghost"
+            style={{ padding: '6px 16px 6px 6px', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={() => setRoute({ page: 'profile' })}
           >
-            {!(profile && profile.photo) && ((profile && profile.name) || '✦').charAt(0).toUpperCase()}
-          </span>
-          {(profile && profile.name) || t.nav_profile}
-        </button>
+            <span
+              style={{
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: "'Cinzel', serif", fontSize: 12, color: 'var(--bg)',
+                background: (profile && profile.photo)
+                  ? `center/cover url(${profile.photo})`
+                  : 'radial-gradient(circle at 30% 30%, var(--gold), var(--gold-deep))',
+              }}
+            >
+              {!(profile && profile.photo) && ((profile && profile.name) || '✦').charAt(0).toUpperCase()}
+            </span>
+            {(profile && profile.name) || t.nav_profile}
+          </button>
+        ) : (
+          <button
+            className="btn btn-ghost"
+            style={{ padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={() => onOpenAuth && onOpenAuth()}
+          >
+            {t.nav_login}
+          </button>
+        )}
       </div>
     </nav>
   );

@@ -363,6 +363,12 @@ const ARCANA_SETUP_PASSWORD = process.env.ARCANA_SETUP_PASSWORD || '';
 // requireUserAuth() cierran el hueco donde cualquiera podia escribir el
 // email de otra socia y el backend se lo creia.
 const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+// 2026-09-10 (a pedido de Christian) -- ver booking.mts para el detalle
+// completo comentado: verificacion de email real. El signup ya no crea
+// la cuenta ni una sesion -- guarda un "pendingSignup" y manda un email
+// con un link; la cuenta recien se crea cuando se confirma ese link
+// (accion "verify-email").
+const PENDING_SIGNUP_TTL_MS = 48 * 60 * 60 * 1000; // 48 horas
 
 function hashSetupPassword(pw) {
   return crypto.createHash('sha256').update(String(pw || '')).digest('hex');
@@ -481,6 +487,12 @@ function pruneUserSessions(store) {
     if (now - store.userSessions[token].createdAt > USER_SESSION_TTL_MS) delete store.userSessions[token];
   }
 }
+function prunePendingSignups(store) {
+  const now = Date.now();
+  for (const email of Object.keys(store.pendingSignups)) {
+    if (now - store.pendingSignups[email].createdAt > PENDING_SIGNUP_TTL_MS) delete store.pendingSignups[email];
+  }
+}
 function requireUserAuth(store, payload) {
   pruneUserSessions(store);
   const token = payload && payload.sessionToken;
@@ -520,6 +532,7 @@ function loadBookingStore() {
     if (!Array.isArray(store.eventLog)) store.eventLog = [];
     if (!Array.isArray(store.users)) store.users = [];
     if (!store.userSessions || typeof store.userSessions !== 'object') store.userSessions = {};
+    if (!store.pendingSignups || typeof store.pendingSignups !== 'object') store.pendingSignups = {};
     if (!store.settings.newsletterTemplate) store.settings.newsletterTemplate = loadDefaultNewsletterTemplate();
     if (!store.settings.newsletterSchedule || typeof store.settings.newsletterSchedule !== 'object') {
       store.settings.newsletterSchedule = { ...DEFAULT_NEWSLETTER_SCHEDULE };
@@ -572,6 +585,7 @@ function loadBookingStore() {
       eventLog: [],
       users: [],
       userSessions: {},
+      pendingSignups: {},
     };
   }
 }
@@ -948,6 +962,19 @@ async function resendSend(to, subject, html) {
   return data;
 }
 
+function verifyEmailHtml(verifyUrl, es) {
+  const title = es ? 'Confirmá tu email' : 'Confirm your email';
+  const body = es
+    ? 'Hacé clic abajo para confirmar tu cuenta en Lux Astral y empezar a usarla.'
+    : 'Click below to confirm your Lux Astral account and start using it.';
+  const cta = es ? 'Confirmar mi email' : 'Confirm my email';
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;text-align:center;">
+    <h1 style="color:#d4a85a;font-size:22px;">${title}</h1>
+    <p style="font-size:15px;line-height:1.6;max-width:420px;margin:16px auto;">${body}</p>
+    <a href="${verifyUrl}" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#d4a85a;color:#0f0a24;text-decoration:none;border-radius:8px;font-weight:bold;">${cta}</a>
+  </div>`;
+}
+
 function activationEmailHtml(planKey, activationUrl, es) {
   const planName = { luna: 'Luna', estrella: 'Estrella' }[planKey] || planKey;
   const title = es ? `¡Te regalamos una membresía ${planName}!` : `You've been gifted a ${planName} membership!`;
@@ -1307,19 +1334,52 @@ async function handleBooking(req, res, url) {
       const pw = String(payload.password || '');
       const name = (payload.name || '').trim().slice(0, 80);
       const gender = payload.gender ? String(payload.gender).slice(0, 20) : null;
+      const lang = payload.lang === 'en' ? 'en' : 'es';
       if (!email || !email.includes('@')) return sendJson(res, 400, { error: 'Escribí un email válido.' });
       if (pw.length < 6) return sendJson(res, 400, { error: 'La contraseña tiene que tener al menos 6 caracteres.' });
       if (findUserByEmail(store, email)) {
         return sendJson(res, 409, { error: 'Ya existe una cuenta con ese email. Iniciá sesión.' });
       }
+      prunePendingSignups(store);
       const { hash, salt } = hashAccountPassword(pw);
-      store.users.push({ email, passwordHash: hash, passwordSalt: salt, name, gender, photo: null, createdAt: new Date().toISOString() });
-      pruneUserSessions(store);
-      const token = crypto.randomUUID();
-      store.userSessions[token] = { email, createdAt: Date.now() };
-      logEvent(store, { email, type: 'signup', detail: {} });
+      const verifyToken = crypto.randomUUID();
+      store.pendingSignups[email] = { passwordHash: hash, passwordSalt: salt, name, gender, verifyToken, createdAt: Date.now() };
       saveBookingStore(store);
-      return sendJson(res, 200, { ok: true, token, user: publicUser(store, email) });
+      const base = (payload.origin || '').replace(/\/$/, '');
+      const verifyUrl = `${base}/Arcana.html?verify=${verifyToken}`;
+      let emailSent = false;
+      let emailError = '';
+      try {
+        await resendSend(
+          email,
+          lang === 'en' ? "Confirm your email — Lux Astral" : 'Confirmá tu email — Lux Astral',
+          verifyEmailHtml(verifyUrl, lang !== 'en')
+        );
+        emailSent = true;
+      } catch (e) {
+        emailError = e.isConfig ? e.message : (e.detail && e.detail.message) || e.message || 'No se pudo enviar el email.';
+      }
+      return sendJson(res, 200, { ok: true, pendingVerification: true, emailSent, emailError });
+    }
+
+    if (action === 'verify-email') {
+      const token = String(payload.token || '');
+      if (!token) return sendJson(res, 400, { error: 'Falta el token de verificación.' });
+      prunePendingSignups(store);
+      const matchedEmail = Object.keys(store.pendingSignups).find((e) => store.pendingSignups[e].verifyToken === token);
+      if (!matchedEmail) return sendJson(res, 404, { error: 'Este link ya no es válido.' });
+      const pending = store.pendingSignups[matchedEmail];
+      delete store.pendingSignups[matchedEmail];
+      store.users.push({
+        email: matchedEmail, passwordHash: pending.passwordHash, passwordSalt: pending.passwordSalt,
+        name: pending.name || '', gender: pending.gender || null, photo: null, createdAt: new Date().toISOString(),
+      });
+      pruneUserSessions(store);
+      const sessionToken = crypto.randomUUID();
+      store.userSessions[sessionToken] = { email: matchedEmail, createdAt: Date.now() };
+      logEvent(store, { email: matchedEmail, type: 'signup', detail: {} });
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true, token: sessionToken, user: publicUser(store, matchedEmail) });
     }
 
     if (action === 'login') {
@@ -1327,6 +1387,10 @@ async function handleBooking(req, res, url) {
       const pw = String(payload.password || '');
       const user = findUserByEmail(store, email);
       if (!user || !verifyAccountPassword(pw, user.passwordSalt, user.passwordHash)) {
+        prunePendingSignups(store);
+        if (!user && store.pendingSignups[email]) {
+          return sendJson(res, 401, { error: 'Todavía no confirmaste tu email — revisá tu bandeja de entrada (o spam) y hacé clic en el link que te mandamos.' });
+        }
         return sendJson(res, 401, { error: 'Email o contraseña incorrectos.' });
       }
       pruneUserSessions(store);

@@ -9,7 +9,7 @@
 //  - "Copy reading" button — copies a formatted text summary
 //  - "Another interpretation" — re-asks the LLM with a fresh angle
 //  - Celtic Cross uses the classical geometric layout, not a flat grid
-function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, updateReading, resumeReading }) {
+function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, updateReading, resumeReading, requireAuth }) {
   const { TarotCard } = window;
   const t = window.I18N[lang];
   const SPREAD_SIZE = { daily: 1, three: 3, love: 5, celtic: 10, work: 4, free: 3, decision: 5, six: 6, year: 12 }[spread] || 3;
@@ -176,10 +176,17 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
     setStep('shuffle');
   };
 
-  // Puerta de acceso antes de barajar: verifica el email contra el backend
+  // Puerta de acceso antes de barajar: primero exige sesión (2026-09-10, a
+  // pedido de Christian: registrarse/loguearse recién hace falta acá, al
+  // querer hacer una consulta -- navegar el resto del sitio es libre, ver
+  // App.jsx/requireAuth) y después verifica el email contra el backend
   // (plan real, o el límite del plan Vela gratis) y recién ahí arranca la
   // baraja — así nunca se gasta un llamado a la IA de más si no corresponde.
   const beginReading = () => {
+    if (!(profile && profile.loggedIn)) {
+      requireAuth(() => beginReading());
+      return;
+    }
     setAccessError('');
     setAccessChecking(true);
     window.arcanaReadingAccess({ spread, preferredResponseType: selectedRT })
