@@ -2983,152 +2983,26 @@ function spreadName(spread, t) {
 }
 
 // =========== Pricing ===========
-function PricingPage({ lang, setRoute, profile }) {
-  const t = window.I18N[lang];
-  const go = (page) => { if (typeof setRoute === 'function') setRoute({ page }); };
-  const [billing, setBilling] = React.useState('year'); // 'month' | 'year'
-  const [openFaq, setOpenFaq] = React.useState(0);
-
-  // Suscripción real con PayPal (cobro recurrente) — identificada por
-  // email, sin cuentas/login. Ver acciones "subscription-plans" /
-  // "confirm-subscription" en local-server.js / booking.mts.
-  const [plansConfig, setPlansConfig] = React.useState({ plans: null, paypalClientId: '', planPrices: null });
-  const [subOpen, setSubOpen] = React.useState(null); // { key: 'luna'|'oraculo', billing } mientras el modal está abierto
-  // 2026-09-09 (a pedido de Christian): el email de la suscripción ya no
-  // es un campo de texto libre -- se toma SIEMPRE de la cuenta
-  // autenticada, así la suscripción queda atada a quien realmente paga
-  // (el backend además lo re-verifica: ver requireUserAuth en la acción
-  // "confirm-subscription").
-  const [subEmail, setSubEmail] = React.useState(profile.email || '');
-  const [subError, setSubError] = React.useState('');
-  const [subState, setSubState] = React.useState('idle'); // idle | confirming | done | error
-  const [subSdkLoaded, setSubSdkLoaded] = React.useState(false);
-  const subSdkLoadingRef = React.useRef(false);
-  const subButtonBoxRef = React.useRef(null);
-  const subRenderedForRef = React.useRef(null);
-  const subCtxRef = React.useRef({ email: '', planKey: '', billing: '' });
-
-  React.useEffect(() => {
-    window.arcanaSubscriptionPlans().then(setPlansConfig).catch(() => {});
-  }, []);
-
-  // El botón de suscripción necesita el SDK de PayPal cargado con
-  // intent=subscription (distinto del intent=capture que usa el
-  // Marketplace para pagos de una sola sesión) — por eso se carga acá de
-  // nuevo con otros parámetros, marcado con una bandera global para no
-  // pisar/confundirse si el navegador ya cargó el otro.
-  React.useEffect(() => {
-    if (!plansConfig.paypalClientId) return undefined;
-    if (window.paypal && window.__arcanaPaypalSdkKind === 'subscription') { setSubSdkLoaded(true); return undefined; }
-    if (subSdkLoadingRef.current) return undefined;
-    subSdkLoadingRef.current = true;
-    const s = document.createElement('script');
-    s.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(plansConfig.paypalClientId) + '&vault=true&intent=subscription';
-    s.onload = () => { window.__arcanaPaypalSdkKind = 'subscription'; subSdkLoadingRef.current = false; setSubSdkLoaded(true); };
-    s.onerror = () => { subSdkLoadingRef.current = false; setSubError(lang === 'es' ? 'No se pudo cargar PayPal.' : 'Could not load PayPal.'); };
-    document.body.appendChild(s);
-    return undefined;
-  }, [plansConfig.paypalClientId]);
-
-  React.useEffect(() => {
-    subCtxRef.current = { email: profile.email || '', planKey: subOpen ? subOpen.key : '', billing: subOpen ? subOpen.billing : '' };
-  }, [profile.email, subOpen]);
-
-  React.useEffect(() => {
-    if (!subOpen || !subSdkLoaded || !window.paypal || !subButtonBoxRef.current) return;
-    const renderKey = subOpen.key + ':' + subOpen.billing;
-    if (subRenderedForRef.current === renderKey) return;
-    const planField = subOpen.key + '_' + (subOpen.billing === 'year' ? 'year' : 'month');
-    const planId = plansConfig.plans ? plansConfig.plans[planField] : null;
-    if (!planId) return;
-    subRenderedForRef.current = renderKey;
-    subButtonBoxRef.current.innerHTML = '';
-    window.paypal.Buttons({
-      style: { layout: 'vertical', color: 'gold', label: 'subscribe' },
-      createSubscription: (data, actions) => {
-        if (!profile.token) {
-          setSubError(lang === 'es' ? 'Tenés que iniciar sesión primero.' : 'You need to sign in first.');
-          return Promise.reject(new Error('missing-session'));
-        }
-        setSubError('');
-        return actions.subscription.create({ plan_id: planId });
-      },
-      onApprove: (data) => {
-        const ctx = subCtxRef.current;
-        setSubState('confirming');
-        return window.arcanaConfirmSubscription({
-          subscriptionId: data.subscriptionID, planKey: ctx.planKey, billing: ctx.billing,
-        })
-          .then((res) => {
-            if (res.isSubscriber) {
-              // Pantalla de bienvenida compartida (ad-honores y pagas terminan
-              // en la misma) — ver WelcomePage en OtherPages.jsx.
-              setRoute({ page: 'welcome', email: ctx.email, planKey: res.planKey || ctx.planKey, source: 'paypal' });
-            } else {
-              setSubState('error');
-            }
-          })
-          .catch(() => setSubState('error'));
-      },
-      onError: () => setSubError(lang === 'es' ? 'Ocurrió un error con PayPal.' : 'Something went wrong with PayPal.'),
-    }).render(subButtonBoxRef.current);
-  }, [subOpen, subSdkLoaded, plansConfig.plans]);
-
-  const openSubscribe = (planKey) => {
-    setSubOpen({ key: planKey, billing });
-    setSubEmail(profile.email || '');
-    setSubError('');
-    setSubState('idle');
-    subRenderedForRef.current = null;
-  };
-  const closeSubscribe = () => { setSubOpen(null); subRenderedForRef.current = null; };
-
-  // 2026-09-10 (a pedido de Christian): estos valores ya no son la fuente
-  // de verdad -- son solo el respaldo mientras carga plansConfig.planPrices
-  // (que viene de store.settings.planPrices, editable desde Setup > Planes).
-  // Si el Power User cambia un precio ahi, esta pantalla lo refleja solo.
-  const DEFAULT_PLAN_PRICES = {
-    luna_month: 6, luna_year: 60,
-    estrella_month: 9, estrella_year: 90,
-    oraculo_month: 24, oraculo_year: 240,
-  };
-  const planPrice = (key) => {
-    const raw = plansConfig.planPrices && plansConfig.planPrices[key];
-    const n = raw != null ? Number(raw) : DEFAULT_PLAN_PRICES[key];
-    return Number.isFinite(n) ? n : DEFAULT_PLAN_PRICES[key];
-  };
-  const prices = {
-    vela:     { month: 0, year: 0 },
-    luna:     { month: planPrice('luna_month'), year: planPrice('luna_year') },
-    estrella: { month: planPrice('estrella_month'), year: planPrice('estrella_year') },
-    oraculo:  { month: planPrice('oraculo_month'), year: planPrice('oraculo_year') },
-  };
-
-  // Precio de la sesión paga con tarotista (45 min) -- mismo valor real que
-  // se cobra en el Marketplace (store.settings.sessionBasePrice), así este
-  // cuadro nunca queda desactualizado si Christian cambia el precio en Setup.
-  const sessionPriceRaw = plansConfig.sessionBasePrice;
-  const sessionPrice = Number.isFinite(Number(sessionPriceRaw)) ? Number(sessionPriceRaw) : 29;
-
-  const priceLabel = (planKey) => {
-    const p = prices[planKey][billing];
-    if (p === 0) return { big: t.pricing_free_price, small: t.pricing_free_price_sub, currency: false };
-    // yearly: show monthly equivalent as headline (rounded), yearly total as sub
-    if (billing === 'year') {
-      const perMonth = Math.round((p / 12) * 10) / 10;
-      return { big: perMonth, small: `${t.pricing_currency}${p} ${t.pricing_per_year}`, currency: true, unit: t.pricing_per_month };
-    }
-    return { big: p, small: '', currency: true, unit: t.pricing_per_month };
-  };
-
-  const faqs = [
-    { q: t.pricing_faq_1_q, a: t.pricing_faq_1_a },
-    { q: t.pricing_faq_2_q, a: t.pricing_faq_2_a },
-    { q: t.pricing_faq_3_q, a: t.pricing_faq_3_a },
-    { q: t.pricing_faq_4_q, a: t.pricing_faq_4_a },
-  ];
-
-  const plans = [
+// Precios de los 3 planes pagos + metadata de tarjeta (nombre, features,
+// etc) -- compartido entre PricingPage (la vitrina) y PlanCheckoutPage (el
+// flujo de suscripción en 3 pasos), para no duplicar los mismos textos.
+// 2026-09-10 (a pedido de Christian): estos valores por defecto ya no son
+// la fuente de verdad -- son solo el respaldo mientras carga
+// plansConfig.planPrices (que viene de store.settings.planPrices, editable
+// desde Setup > Planes). Si el Power User cambia un precio ahi, la
+// pantalla lo refleja solo.
+const DEFAULT_PLAN_PRICES = {
+  luna_month: 6, luna_year: 60,
+  estrella_month: 9, estrella_year: 90,
+  oraculo_month: 24, oraculo_year: 240,
+};
+function planPriceFor(plansConfig, key) {
+  const raw = plansConfig.planPrices && plansConfig.planPrices[key];
+  const n = raw != null ? Number(raw) : DEFAULT_PLAN_PRICES[key];
+  return Number.isFinite(n) ? n : DEFAULT_PLAN_PRICES[key];
+}
+function buildPlanCards(t) {
+  return [
     {
       key: 'vela',
       name: t.plan_vela_name,
@@ -3172,6 +3046,65 @@ function PricingPage({ lang, setRoute, profile }) {
       sigil: '✧',
     },
   ];
+}
+
+function PricingPage({ lang, setRoute, profile }) {
+  const t = window.I18N[lang];
+  const go = (page) => { if (typeof setRoute === 'function') setRoute({ page }); };
+  const [billing, setBilling] = React.useState('year'); // 'month' | 'year'
+  const [openFaq, setOpenFaq] = React.useState(0);
+
+  // Precios + PayPal client id (para el cuadro de Sesiones y para calcular
+  // los precios que se muestran acá). El flujo de suscripción en sí
+  // (cargar el SDK, mostrar el botón de PayPal, confirmar) ya no vive acá
+  // -- 2026-09-10 (a pedido de Christian): elegir un plan ya no abre un
+  // popup de pago encima de la vitrina, sino que navega a una pantalla
+  // propia y dedicada (PlanCheckoutPage, más abajo en este archivo) con
+  // 3 pasos: confirmación del plan, detalle comercial, y recién ahí el
+  // pago -- se siente más serio para algo que involucra dinero.
+  const [plansConfig, setPlansConfig] = React.useState({ plans: null, paypalClientId: '', planPrices: null });
+
+  React.useEffect(() => {
+    window.arcanaSubscriptionPlans().then(setPlansConfig).catch(() => {});
+  }, []);
+
+  const openSubscribe = (planKey) => {
+    setRoute({ page: 'plancheckout', planKey, billing });
+  };
+
+  const planPrice = (key) => planPriceFor(plansConfig, key);
+  const prices = {
+    vela:     { month: 0, year: 0 },
+    luna:     { month: planPrice('luna_month'), year: planPrice('luna_year') },
+    estrella: { month: planPrice('estrella_month'), year: planPrice('estrella_year') },
+    oraculo:  { month: planPrice('oraculo_month'), year: planPrice('oraculo_year') },
+  };
+
+  // Precio de la sesión paga con tarotista (45 min) -- mismo valor real que
+  // se cobra en el Marketplace (store.settings.sessionBasePrice), así este
+  // cuadro nunca queda desactualizado si Christian cambia el precio en Setup.
+  const sessionPriceRaw = plansConfig.sessionBasePrice;
+  const sessionPrice = Number.isFinite(Number(sessionPriceRaw)) ? Number(sessionPriceRaw) : 29;
+
+  const priceLabel = (planKey) => {
+    const p = prices[planKey][billing];
+    if (p === 0) return { big: t.pricing_free_price, small: t.pricing_free_price_sub, currency: false };
+    // yearly: show monthly equivalent as headline (rounded), yearly total as sub
+    if (billing === 'year') {
+      const perMonth = Math.round((p / 12) * 10) / 10;
+      return { big: perMonth, small: `${t.pricing_currency}${p} ${t.pricing_per_year}`, currency: true, unit: t.pricing_per_month };
+    }
+    return { big: p, small: '', currency: true, unit: t.pricing_per_month };
+  };
+
+  const faqs = [
+    { q: t.pricing_faq_1_q, a: t.pricing_faq_1_a },
+    { q: t.pricing_faq_2_q, a: t.pricing_faq_2_a },
+    { q: t.pricing_faq_3_q, a: t.pricing_faq_3_a },
+    { q: t.pricing_faq_4_q, a: t.pricing_faq_4_a },
+  ];
+
+  const plans = buildPlanCards(t);
 
   return (
     <div className="page pricing-page">
@@ -3285,61 +3218,12 @@ function PricingPage({ lang, setRoute, profile }) {
         </div>
       </div>
 
-      {subOpen && (
-        <div className="modal-overlay" onClick={closeSubscribe}>
-          <div className="modal live-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={closeSubscribe}>✕</button>
-            {subState === 'done' ? (
-              <>
-                <div className="eyebrow" style={{ marginBottom: 8 }}>✦</div>
-                <h2 className="live-modal-h">{lang === 'es' ? 'Suscripción activa' : 'Subscription active'}</h2>
-                <p className="italic" style={{ marginTop: 10 }}>
-                  {lang === 'es'
-                    ? 'Ya puedes usar tu descuento al reservar una sesión con ese mismo email.'
-                    : 'You can now use your discount when booking a session with that same email.'}
-                </p>
-                <button className="btn btn-primary btn-lg" style={{ marginTop: 18 }} onClick={closeSubscribe}>
-                  {lang === 'es' ? 'Listo' : 'Done'}
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="eyebrow" style={{ marginBottom: 8 }}>
-                  — {plans.find((p) => p.key === subOpen.key)?.name} —
-                </div>
-                <h2 className="live-modal-h">
-                  {subOpen.billing === 'year' ? t.pricing_billing_year : t.pricing_billing_month}
-                </h2>
-                <div className="live-modal-block">
-                  <div className="form-field">
-                    <label>{t.market_book_email}</label>
-                    <input type="email" value={subEmail} readOnly disabled title={lang === 'es' ? 'Es el email de tu cuenta.' : 'This is your account email.'} />
-                  </div>
-                  {!plansConfig.plans && (
-                    <div className="live-pay-note italic">
-                      {lang === 'es' ? 'Los planes todavía no están configurados en PayPal.' : 'Plans are not configured in PayPal yet.'}
-                    </div>
-                  )}
-                  {subError && <div className="live-pay-note italic" style={{ color: '#e08080' }}>{subError}</div>}
-                  {plansConfig.paypalClientId && plansConfig.plans && !subSdkLoaded && (
-                    <div className="live-pay-note italic">{t.market_book_processing}</div>
-                  )}
-                  {subState === 'error' && (
-                    <div className="live-pay-note italic" style={{ color: '#e08080' }}>
-                      {lang === 'es' ? 'No se pudo confirmar la suscripción.' : 'Could not confirm the subscription.'}
-                    </div>
-                  )}
-                  <div ref={subButtonBoxRef} className="live-paypal-box" />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="pricing-footer">
         <div className="pf-star" aria-hidden>✦</div>
         <p className="pf-quote italic">{t.pricing_footer_quote}</p>
+        <button className="pf-policies-link" onClick={() => go('policies')}>
+          {lang === 'es' ? 'Políticas de Lux Astral' : 'Lux Astral Policies'}
+        </button>
       </div>
 
       <style>{`
@@ -3711,6 +3595,724 @@ function PricingPage({ lang, setRoute, profile }) {
           max-width: 640px;
           margin: 0 auto;
           line-height: 1.5;
+        }
+        .pf-policies-link {
+          background: none;
+          border: none;
+          margin-top: 22px;
+          color: var(--ink-mute);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          text-decoration: underline;
+          cursor: pointer;
+        }
+        .pf-policies-link:hover { color: var(--gold); }
+      `}</style>
+    </div>
+  );
+}
+
+// Contenido de las Politicas de Lux Astral -- compartido entre la pantalla
+// completa (PoliciesPage, accesible en cualquier momento) y el modal que
+// se abre desde el paso de pago del checkout (PlanCheckoutPage), asi el
+// texto vive en un solo lugar.
+// 2026-09-10 (a pedido de Christian): "cuando haga clic en el pago debe
+// hacer clic en aceptar las politicas de Lux Astral (tienes que
+// crearlas)". Este es un borrador razonable para lanzar -- cubre
+// suscripciones/cobros recurrentes, cancelacion, reembolsos, sesiones en
+// vivo y datos personales, pero no reemplaza una revision legal real
+// (por ejemplo contra la Ley del Consumidor chilena) antes de tratarlo
+// como definitivo.
+function PoliciesContent({ lang }) {
+  const es = lang === 'es';
+  const sections = es ? [
+    {
+      h: 'Qué es Lux Astral',
+      p: 'Lux Astral es una plataforma de tarot: lecturas generadas con inteligencia artificial y sesiones en vivo con tarotistas humanas. El contenido tiene fines de entretenimiento y autoconocimiento — no reemplaza asesoría médica, legal, financiera ni psicológica profesional.',
+    },
+    {
+      h: 'Suscripciones y cobros',
+      p: 'Los planes pagos (Luna, Estrella, Oráculo) se cobran de forma recurrente a través de PayPal, en el ciclo que elijas (mensual o anual). El cobro se renueva automáticamente al final de cada ciclo hasta que canceles — nunca cobramos nada que no hayas aceptado ver antes en pantalla.',
+    },
+    {
+      h: 'Cancelación',
+      p: 'Podés cancelar cuando quieras desde tu perfil, sin llamadas ni formularios. Tu cuenta vuelve al plan gratuito Vela y tu historial de lecturas se conserva; los beneficios del plan pago siguen activos hasta el final del período que ya pagaste.',
+    },
+    {
+      h: 'Reembolsos',
+      p: 'Como regla general, los cobros ya realizados no son reembolsables, salvo que la ley aplicable en tu país indique lo contrario. Si creés que hubo un error de cobro, escribinos a contacto@luxastral.com y lo revisamos.',
+    },
+    {
+      h: 'Sesiones en vivo con tarotistas',
+      p: 'La sesión mensual incluida en el plan Oráculo dura 15 minutos. Las sesiones pagas por separado son de 45 minutos, sin límite de preguntas ni tipo de tirada. Se agendan según la disponibilidad real de cada tarotista mostrada en el Marketplace.',
+    },
+    {
+      h: 'Tus datos',
+      p: 'Usamos tu email y los datos de tu perfil únicamente para dar el servicio: identificarte, guardar tu historial de lecturas y procesar pagos a través de PayPal. No vendemos tus datos a terceros.',
+    },
+    {
+      h: 'Cambios a estas políticas',
+      p: 'Podemos actualizar estas políticas con el tiempo. Si hacemos un cambio importante, te lo vamos a avisar dentro de la plataforma antes de que entre en vigencia.',
+    },
+    {
+      h: 'Contacto',
+      p: 'Cualquier duda sobre tu suscripción, un cobro o estas políticas, escribinos a contacto@luxastral.com.',
+    },
+  ] : [
+    {
+      h: 'What Lux Astral is',
+      p: 'Lux Astral is a tarot platform: AI-generated readings and live sessions with human readers. The content is for entertainment and self-reflection purposes — it does not replace professional medical, legal, financial, or psychological advice.',
+    },
+    {
+      h: 'Subscriptions and billing',
+      p: 'Paid plans (Luna, Estrella, Oráculo) are billed on a recurring basis through PayPal, on the cycle you choose (monthly or yearly). The charge renews automatically at the end of each cycle until you cancel — we never charge anything you haven’t already seen and agreed to on screen.',
+    },
+    {
+      h: 'Cancellation',
+      p: 'You can cancel any time from your profile, no calls or forms. Your account returns to the free Vela plan and your reading history is kept; paid plan benefits stay active until the end of the period you already paid for.',
+    },
+    {
+      h: 'Refunds',
+      p: 'As a general rule, charges already made are non-refundable, unless the law applicable in your country says otherwise. If you think there was a billing error, write to us at contacto@luxastral.com and we’ll look into it.',
+    },
+    {
+      h: 'Live sessions with readers',
+      p: "Oráculo's included monthly session lasts 15 minutes. Sessions booked separately are 45 minutes, with no limit on questions or spread type. They're scheduled based on each reader's real availability shown in the Marketplace.",
+    },
+    {
+      h: 'Your data',
+      p: "We use your email and profile data only to provide the service: identifying you, saving your reading history, and processing payments through PayPal. We don't sell your data to third parties.",
+    },
+    {
+      h: 'Changes to these policies',
+      p: "We may update these policies over time. If we make an important change, we'll let you know inside the platform before it takes effect.",
+    },
+    {
+      h: 'Contact',
+      p: 'Any question about your subscription, a charge, or these policies — write to us at contacto@luxastral.com.',
+    },
+  ];
+  return (
+    <div className="policies-content">
+      <div className="eyebrow" style={{ marginBottom: 8 }}>✦</div>
+      <h2 className="policies-h">{es ? 'Políticas de Lux Astral' : 'Lux Astral Policies'}</h2>
+      <p className="italic policies-updated">
+        {es ? 'Última actualización: septiembre de 2026.' : 'Last updated: September 2026.'}
+      </p>
+      {sections.map((s, i) => (
+        <div key={i} className="policies-section">
+          <h3>{s.h}</h3>
+          <p>{s.p}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PoliciesPage({ lang, setRoute }) {
+  return (
+    <div className="page policies-page">
+      <PoliciesContent lang={lang} />
+      <style>{`
+        .policies-page { max-width: 720px; }
+        .policies-h {
+          font-family: 'Cinzel', serif;
+          font-size: clamp(30px, 4vw, 42px);
+          font-weight: 400;
+          margin-bottom: 8px;
+        }
+        .policies-updated { color: var(--ink-mute); font-size: 14px; margin-bottom: 32px; }
+        .policies-section {
+          padding: 20px 0;
+          border-top: 1px solid var(--line);
+        }
+        .policies-section h3 {
+          font-family: 'Cinzel', serif;
+          font-size: 16px;
+          letter-spacing: 0.04em;
+          color: var(--gold);
+          margin-bottom: 8px;
+        }
+        .policies-section p {
+          font-size: 16px;
+          line-height: 1.7;
+          color: var(--ink-soft);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Flujo de suscripcion en 3 pasos -- pantalla propia y dedicada, no un
+// popup encima de la vitrina de Planes.
+// 2026-09-10 (a pedido de Christian): "cuando se hace clic aparece de
+// inmediato una ventana con el PayPal, eso es muy brusco... cuando se
+// trata de pagar hay que ser muy serios". Antes de llegar al boton de
+// PayPal la persona pasa por: 1) confirmacion calida del plan elegido y
+// sus beneficios, 2) el detalle comercial completo (precio, ciclo,
+// posibilidad de elegir otro plan), y recien 3) el pago, que ademas exige
+// aceptar las Politicas de Lux Astral antes de mostrar el boton real.
+function PlanCheckoutPage({ lang, setRoute, profile, planKey: routePlanKey, billing: routeBilling }) {
+  const t = window.I18N[lang];
+  const es = lang === 'es';
+  const [step, setStep] = React.useState('intro'); // intro | details | payment
+  const [selectedPlanKey, setSelectedPlanKey] = React.useState(routePlanKey || 'luna');
+  const [selectedBilling, setSelectedBilling] = React.useState(routeBilling === 'month' ? 'month' : 'year');
+  const [plansConfig, setPlansConfig] = React.useState({ plans: null, paypalClientId: '', planPrices: null });
+  const [policiesAccepted, setPoliciesAccepted] = React.useState(false);
+  const [policiesOpen, setPoliciesOpen] = React.useState(false);
+  const [subEmail, setSubEmail] = React.useState(profile.email || '');
+  const [subError, setSubError] = React.useState('');
+  const [subState, setSubState] = React.useState('idle'); // idle | confirming | error
+  const [subSdkLoaded, setSubSdkLoaded] = React.useState(false);
+  const subSdkLoadingRef = React.useRef(false);
+  const subButtonBoxRef = React.useRef(null);
+  const subRenderedForRef = React.useRef(null);
+  const subCtxRef = React.useRef({ email: '', planKey: '', billing: '' });
+
+  React.useEffect(() => {
+    window.arcanaSubscriptionPlans().then(setPlansConfig).catch(() => {});
+  }, []);
+
+  // Si alguien llega sin haber elegido un plan (link roto, refresh raro
+  // antes de que el estado se hidrate), volvemos a la vitrina en vez de
+  // mostrar una pantalla vacía.
+  React.useEffect(() => {
+    if (!routePlanKey) setRoute({ page: 'pricing' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  React.useEffect(() => { setSubEmail(profile.email || ''); }, [profile.email]);
+
+  // El SDK de PayPal (intent=subscription) recien se carga al llegar al
+  // paso de pago -- no antes, para no gastar esa llamada de red mientras
+  // la persona todavia esta leyendo/decidiendo.
+  React.useEffect(() => {
+    if (step !== 'payment') return undefined;
+    if (!plansConfig.paypalClientId) return undefined;
+    if (window.paypal && window.__arcanaPaypalSdkKind === 'subscription') { setSubSdkLoaded(true); return undefined; }
+    if (subSdkLoadingRef.current) return undefined;
+    subSdkLoadingRef.current = true;
+    const s = document.createElement('script');
+    s.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(plansConfig.paypalClientId) + '&vault=true&intent=subscription';
+    s.onload = () => { window.__arcanaPaypalSdkKind = 'subscription'; subSdkLoadingRef.current = false; setSubSdkLoaded(true); };
+    s.onerror = () => { subSdkLoadingRef.current = false; setSubError(es ? 'No se pudo cargar PayPal.' : 'Could not load PayPal.'); };
+    document.body.appendChild(s);
+    return undefined;
+  }, [step, plansConfig.paypalClientId]);
+
+  React.useEffect(() => {
+    subCtxRef.current = { email: profile.email || '', planKey: selectedPlanKey, billing: selectedBilling };
+  }, [profile.email, selectedPlanKey, selectedBilling]);
+
+  // El cuadro del botón de PayPal se desmonta cada vez que se sale del
+  // paso de pago o se destilda "acepto las políticas" (son renders
+  // condicionales, no display:none) -- si no se limpia esta marca acá, al
+  // volver a montarse el guard de abajo cree que ya estaba dibujado
+  // (mismo plan/ciclo) y deja el cuadro vacío en vez de volver a llamar a
+  // paypal.Buttons().render().
+  React.useEffect(() => {
+    if (step !== 'payment' || !policiesAccepted) subRenderedForRef.current = null;
+  }, [step, policiesAccepted]);
+
+  React.useEffect(() => {
+    if (step !== 'payment' || !policiesAccepted || !subSdkLoaded || !window.paypal || !subButtonBoxRef.current) return;
+    const renderKey = selectedPlanKey + ':' + selectedBilling;
+    if (subRenderedForRef.current === renderKey) return;
+    const planField = selectedPlanKey + '_' + (selectedBilling === 'year' ? 'year' : 'month');
+    const planId = plansConfig.plans ? plansConfig.plans[planField] : null;
+    if (!planId) return;
+    subRenderedForRef.current = renderKey;
+    subButtonBoxRef.current.innerHTML = '';
+    window.paypal.Buttons({
+      style: { layout: 'vertical', color: 'gold', label: 'subscribe' },
+      createSubscription: (data, actions) => {
+        if (!profile.token) {
+          setSubError(es ? 'Tenés que iniciar sesión primero.' : 'You need to sign in first.');
+          return Promise.reject(new Error('missing-session'));
+        }
+        setSubError('');
+        return actions.subscription.create({ plan_id: planId });
+      },
+      onApprove: (data) => {
+        const ctx = subCtxRef.current;
+        setSubState('confirming');
+        return window.arcanaConfirmSubscription({
+          subscriptionId: data.subscriptionID, planKey: ctx.planKey, billing: ctx.billing,
+        })
+          .then((res) => {
+            if (res.isSubscriber) {
+              // Pantalla de bienvenida compartida (ad-honores y pagas terminan
+              // en la misma) — ver WelcomePage en este archivo.
+              setRoute({ page: 'welcome', email: ctx.email, planKey: res.planKey || ctx.planKey, source: 'paypal' });
+            } else {
+              setSubState('error');
+            }
+          })
+          .catch(() => setSubState('error'));
+      },
+      onError: () => setSubError(es ? 'Ocurrió un error con PayPal.' : 'Something went wrong with PayPal.'),
+    }).render(subButtonBoxRef.current);
+  }, [step, policiesAccepted, subSdkLoaded, plansConfig.plans, selectedPlanKey, selectedBilling]);
+
+  if (!routePlanKey) return null;
+
+  const plans = buildPlanCards(t);
+  const plan = plans.find((p) => p.key === selectedPlanKey) || plans[1];
+  const otherPlans = plans.filter((p) => p.key !== 'vela' && p.key !== selectedPlanKey);
+  const price = planPriceFor(plansConfig, selectedPlanKey + '_' + selectedBilling);
+  const priceUnit = selectedBilling === 'year' ? t.pricing_per_year : t.pricing_per_month;
+  const HERO_IMG = { luna: 'assets/tarot-moon.jpg', estrella: 'assets/tarot-sun.jpg', oraculo: 'assets/cofre-bg.jpg' }[selectedPlanKey] || 'assets/tarot-moon.jpg';
+
+  const steps = [
+    { key: 'intro', label: es ? 'Tu plan' : 'Your plan' },
+    { key: 'details', label: es ? 'Detalles' : 'Details' },
+    { key: 'payment', label: es ? 'Pago' : 'Payment' },
+  ];
+  const stepIdx = steps.findIndex((s) => s.key === step);
+
+  const pickPlan = (key) => {
+    setSelectedPlanKey(key);
+    setStep('intro');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  return (
+    <div className="checkout-page">
+      <div className="checkout-card">
+        <button className="checkout-exit" onClick={() => setRoute({ page: 'pricing' })}>
+          ← {es ? 'Volver a Planes' : 'Back to Plans'}
+        </button>
+
+        <div className="checkout-steps" role="tablist">
+          {steps.map((s, i) => (
+            <div key={s.key} className={`checkout-step ${i === stepIdx ? 'is-active' : ''} ${i < stepIdx ? 'is-done' : ''}`}>
+              <span className="checkout-step-dot">{i < stepIdx ? '✓' : i + 1}</span>
+              <span className="checkout-step-label">{s.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {step === 'intro' && (
+          <>
+            <div className="checkout-hero" style={{ backgroundImage: `url(${HERO_IMG})` }}>
+              <div className="checkout-hero-overlay" />
+              <div className="checkout-hero-inner">
+                <div className="eyebrow">✦ {es ? '¡Excelente elección!' : 'Excellent choice!'} ✦</div>
+                <h1 className="checkout-h">{plan.name}</h1>
+                <p className="checkout-tag italic">{plan.tag}</p>
+              </div>
+            </div>
+            <div className="checkout-body">
+              <p className="checkout-lead">
+                {es
+                  ? `¡Qué bueno que te has decidido a optar por un plan! El plan ${plan.name} ${plan.desc.charAt(0).toLowerCase()}${plan.desc.slice(1)}`
+                  : `Great to see you're ready to take this step! The ${plan.name} plan ${plan.desc.charAt(0).toLowerCase()}${plan.desc.slice(1)}`}
+              </p>
+              <ul className="checkout-features">
+                {plan.features.map((f, i) => (
+                  <li key={i} className={i === plan.highlightFeature ? 'is-highlight' : ''}>
+                    <span className="cf-check" aria-hidden>✦</span>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="checkout-trust italic">
+                {es
+                  ? 'Es una decisión que te va a traer claridad y compañía en el camino — y podés cambiar de opinión cuando quieras.'
+                  : "It's a decision that brings clarity and companionship along the way — and you can change your mind any time."}
+              </p>
+              <button className="btn btn-primary btn-lg checkout-cta" onClick={() => setStep('details')}>
+                {es ? 'Continuar' : 'Continue'} →
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 'details' && (
+          <div className="checkout-body">
+            <h2 className="checkout-h2">{es ? 'Los detalles, sin letra chica' : 'The details, no fine print'}</h2>
+            <p className="checkout-sub italic">
+              {es
+                ? 'Tenés derecho a saber exactamente qué vas a pagar y qué vas a recibir.'
+                : "You have the right to know exactly what you'll pay and what you'll get."}
+            </p>
+
+            <div className="checkout-billing" role="tablist">
+              <button className={`checkout-bt-opt ${selectedBilling === 'month' ? 'is-active' : ''}`} onClick={() => setSelectedBilling('month')}>
+                {t.pricing_billing_month}
+              </button>
+              <button className={`checkout-bt-opt ${selectedBilling === 'year' ? 'is-active' : ''}`} onClick={() => setSelectedBilling('year')}>
+                {t.pricing_billing_year}
+                <span className="checkout-bt-save">{t.pricing_year_save}</span>
+              </button>
+            </div>
+
+            <div className="checkout-price-block">
+              <div className="checkout-price">
+                <span className="cp-currency">{t.pricing_currency}</span>
+                <span className="cp-big">{price}</span>
+                <span className="cp-unit">{priceUnit}</span>
+              </div>
+              <p className="checkout-price-note">
+                {es
+                  ? `Se te va a cobrar ${t.pricing_currency}${price} ${selectedBilling === 'year' ? 'una vez al año' : 'cada mes'}, de forma automática, hasta que canceles. Podés cancelar cuando quieras desde tu perfil, sin llamadas ni formularios.`
+                  : `You'll be charged ${t.pricing_currency}${price} ${selectedBilling === 'year' ? 'once a year' : 'every month'}, automatically, until you cancel. You can cancel any time from your profile, no calls or forms.`}
+              </p>
+            </div>
+
+            {otherPlans.length > 0 && (
+              <div className="checkout-switch">
+                <div className="eyebrow" style={{ marginBottom: 10 }}>{es ? '¿Preferís revisar otro plan?' : 'Want to check a different plan?'}</div>
+                <div className="checkout-switch-row">
+                  {otherPlans.map((p) => (
+                    <button key={p.key} className="checkout-switch-btn" onClick={() => pickPlan(p.key)}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="checkout-nav-row">
+              <button className="btn btn-ghost" onClick={() => setStep('intro')}>← {es ? 'Volver' : 'Back'}</button>
+              <button className="btn btn-primary btn-lg" onClick={() => setStep('payment')}>
+                {es ? 'Acepto y continúo' : 'I agree and continue'} →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'payment' && (
+          <div className="checkout-body">
+            <h2 className="checkout-h2">{es ? 'Pago seguro con PayPal' : 'Secure payment with PayPal'}</h2>
+            <p className="checkout-sub italic">
+              {es
+                ? 'Vas a pagar a través de PayPal: es simple y rápido. No necesitás tener cuenta — también podés pagar con tarjeta.'
+                : "You'll pay through PayPal: simple and fast. You don't need an account — you can also pay by card."}
+            </p>
+
+            <div className="checkout-summary">
+              <div><span>{es ? 'Plan' : 'Plan'}</span><strong>{plan.name}</strong></div>
+              <div><span>{es ? 'Ciclo' : 'Billing'}</span><strong>{selectedBilling === 'year' ? t.pricing_billing_year : t.pricing_billing_month}</strong></div>
+              <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{price} {priceUnit}</strong></div>
+              <div><span>{t.market_book_email}</span><strong>{subEmail || '—'}</strong></div>
+            </div>
+
+            <label className="checkout-policies">
+              <input type="checkbox" checked={policiesAccepted} onChange={(e) => setPoliciesAccepted(e.target.checked)} />
+              <span>
+                {es ? 'He leído y acepto ' : 'I have read and accept the '}
+                <button type="button" className="checkout-policies-link" onClick={() => setPoliciesOpen(true)}>
+                  {es ? 'las Políticas de Lux Astral' : 'Lux Astral Policies'}
+                </button>
+                {es ? '.' : '.'}
+              </span>
+            </label>
+
+            {!profile.token && (
+              <div className="live-pay-note italic">
+                {es ? 'Tenés que iniciar sesión con tu cuenta antes de pagar.' : 'You need to sign in to your account before paying.'}
+              </div>
+            )}
+            {!plansConfig.plans && (
+              <div className="live-pay-note italic">
+                {es ? 'Los planes todavía no están configurados en PayPal.' : 'Plans are not configured in PayPal yet.'}
+              </div>
+            )}
+            {subError && <div className="live-pay-note italic" style={{ color: '#e08080' }}>{subError}</div>}
+            {subState === 'error' && (
+              <div className="live-pay-note italic" style={{ color: '#e08080' }}>
+                {es ? 'No se pudo confirmar la suscripción.' : 'Could not confirm the subscription.'}
+              </div>
+            )}
+            {subState === 'confirming' && (
+              <div className="live-pay-note italic">{es ? 'Confirmando tu suscripción…' : 'Confirming your subscription…'}</div>
+            )}
+
+            {policiesAccepted ? (
+              <>
+                {plansConfig.paypalClientId && plansConfig.plans && !subSdkLoaded && (
+                  <div className="live-pay-note italic">{t.market_book_processing}</div>
+                )}
+                <div ref={subButtonBoxRef} className="live-paypal-box" />
+              </>
+            ) : (
+              <div className="checkout-paypal-locked italic">
+                {es ? 'Aceptá las políticas para habilitar el pago.' : 'Accept the policies to enable payment.'}
+              </div>
+            )}
+
+            <div className="checkout-nav-row">
+              <button className="btn btn-ghost" onClick={() => setStep('details')}>← {es ? 'Volver' : 'Back'}</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {policiesOpen && (
+        <div className="modal-overlay" onClick={() => setPoliciesOpen(false)}>
+          <div className="modal" style={{ maxWidth: 640, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setPoliciesOpen(false)}>✕</button>
+            <PoliciesContent lang={lang} />
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .checkout-page {
+          min-height: 100vh;
+          display: flex;
+          justify-content: center;
+          padding: 48px 16px 64px;
+          background: radial-gradient(circle at 50% 0%, rgba(212,168,90,.08), transparent 60%);
+        }
+        .checkout-card {
+          max-width: 640px;
+          width: 100%;
+        }
+        .checkout-exit {
+          background: transparent;
+          border: none;
+          color: var(--ink-soft);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          cursor: pointer;
+          padding: 6px 0;
+          margin-bottom: 24px;
+        }
+        .checkout-exit:hover { color: var(--gold); }
+
+        .checkout-steps {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          margin-bottom: 32px;
+        }
+        .checkout-step { display: flex; align-items: center; gap: 8px; opacity: 0.5; }
+        .checkout-step.is-active, .checkout-step.is-done { opacity: 1; }
+        .checkout-step-dot {
+          width: 24px; height: 24px;
+          border-radius: 50%;
+          border: 1px solid var(--line-strong);
+          display: flex; align-items: center; justify-content: center;
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          color: var(--ink-soft);
+        }
+        .checkout-step.is-active .checkout-step-dot { border-color: var(--gold); color: var(--gold); }
+        .checkout-step.is-done .checkout-step-dot { background: var(--gold); border-color: var(--gold); color: var(--bg); }
+        .checkout-step-label {
+          font-family: 'Cinzel', serif;
+          font-size: 10px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--ink-soft);
+        }
+        .checkout-step.is-active .checkout-step-label { color: var(--ink); }
+        .checkout-step:not(:last-child)::after {
+          content: '';
+          width: 20px;
+          height: 1px;
+          background: var(--line);
+          margin-left: 6px;
+        }
+
+        .checkout-hero {
+          position: relative;
+          overflow: hidden;
+          border-radius: 20px;
+          border: 1px solid var(--line);
+          padding: 56px 32px;
+          text-align: center;
+          background-size: cover;
+          background-position: center;
+          isolation: isolate;
+        }
+        .checkout-hero-overlay {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(circle at 50% 40%, rgba(15,10,36,0.55), rgba(15,10,36,0.92) 75%),
+            rgba(15,10,36,0.55);
+          z-index: -1;
+        }
+        .checkout-h {
+          font-family: 'Cinzel', serif;
+          font-size: clamp(30px, 4vw, 40px);
+          font-weight: 400;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          margin: 10px 0 6px;
+        }
+        .checkout-tag { color: var(--ink-soft); font-size: 16px; }
+
+        .checkout-body { margin-top: 28px; }
+        .checkout-hero + .checkout-body { margin-top: 24px; }
+        .checkout-h2 {
+          font-family: 'Cinzel', serif;
+          font-size: clamp(24px, 3vw, 30px);
+          font-weight: 400;
+          margin-bottom: 8px;
+        }
+        .checkout-sub { color: var(--ink-soft); font-size: 16px; margin-bottom: 24px; }
+        .checkout-lead {
+          font-family: 'Cormorant Garamond', serif;
+          font-size: 19px;
+          line-height: 1.6;
+          color: var(--ink);
+          margin-bottom: 20px;
+        }
+        .checkout-features {
+          list-style: none;
+          padding: 20px 0;
+          margin: 0 0 20px;
+          border-top: 1px solid var(--line);
+          border-bottom: 1px solid var(--line);
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .checkout-features li {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          font-family: 'Cormorant Garamond', serif;
+          font-size: 16px;
+          color: var(--ink);
+        }
+        .checkout-features .cf-check { color: var(--gold); font-size: 12px; line-height: 1.7; flex-shrink: 0; }
+        .checkout-features li.is-highlight {
+          margin: 0 -14px;
+          padding: 10px 14px;
+          background: linear-gradient(90deg, rgba(212,168,90,0.16), rgba(212,168,90,0.04));
+          border: 1px solid rgba(212,168,90,0.4);
+          border-radius: 10px;
+          color: var(--gold);
+        }
+        .checkout-features li.is-highlight span:last-child { font-weight: 600; }
+        .checkout-trust { color: var(--ink-mute); font-size: 14px; margin-bottom: 26px; }
+        .checkout-cta { width: 100%; }
+
+        .checkout-billing {
+          display: inline-flex;
+          gap: 4px;
+          padding: 5px;
+          border: 1px solid var(--line);
+          border-radius: 999px;
+          background: rgba(26, 20, 56, 0.4);
+          margin-bottom: 24px;
+        }
+        .checkout-bt-opt {
+          background: transparent;
+          border: none;
+          color: var(--ink-soft);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          padding: 9px 18px;
+          border-radius: 999px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .checkout-bt-opt.is-active { background: var(--gold); color: var(--bg); }
+        .checkout-bt-save { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 11px; opacity: .85; text-transform: none; }
+
+        .checkout-price-block {
+          padding: 24px;
+          border: 1px solid var(--line);
+          border-radius: 16px;
+          background: rgba(26, 20, 56, 0.35);
+          margin-bottom: 24px;
+        }
+        .checkout-price { display: flex; align-items: baseline; gap: 4px; }
+        .cp-currency { font-family: 'Cinzel', serif; font-size: 20px; color: var(--gold); }
+        .cp-big { font-family: 'Cinzel', serif; font-size: 44px; font-weight: 500; color: var(--gold); line-height: 1; }
+        .cp-unit { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--ink-soft); margin-left: 4px; }
+        .checkout-price-note { margin-top: 12px; font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
+
+        .checkout-switch { margin-bottom: 28px; }
+        .checkout-switch-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .checkout-switch-btn {
+          background: transparent;
+          border: 1px solid var(--line);
+          color: var(--ink-soft);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          padding: 10px 16px;
+          border-radius: 10px;
+          cursor: pointer;
+        }
+        .checkout-switch-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+        .checkout-summary {
+          border: 1px solid var(--line);
+          border-radius: 16px;
+          padding: 18px 22px;
+          margin-bottom: 22px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .checkout-summary div { display: flex; justify-content: space-between; font-size: 15px; }
+        .checkout-summary span { color: var(--ink-soft); }
+        .checkout-summary strong { color: var(--ink); font-weight: 500; }
+
+        .checkout-policies {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          font-size: 14px;
+          color: var(--ink-soft);
+          cursor: pointer;
+          margin-bottom: 18px;
+        }
+        .checkout-policies input { margin-top: 3px; }
+        .checkout-policies-link {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--gold);
+          text-decoration: underline;
+          cursor: pointer;
+          font-size: inherit;
+          font-family: inherit;
+        }
+        .checkout-paypal-locked {
+          text-align: center;
+          padding: 20px;
+          border: 1px dashed var(--line);
+          border-radius: 12px;
+          color: var(--ink-mute);
+          font-size: 14px;
+        }
+        .live-pay-note {
+          margin-top: 10px;
+          font-size: 13px;
+          color: var(--ink-mute);
+        }
+        .live-paypal-box { min-height: 45px; margin-top: 10px; }
+
+        .checkout-nav-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 24px;
+          gap: 12px;
+        }
+
+        @media (max-width: 560px) {
+          .checkout-hero { padding: 40px 20px; }
+          .checkout-nav-row { flex-direction: column-reverse; align-items: stretch; }
         }
       `}</style>
     </div>

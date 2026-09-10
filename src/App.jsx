@@ -15,7 +15,7 @@ function App() {
     Nav, Starfield,
     HomePage, ReadingsPage, ReadingPage, LibraryPage,
     ChartPage, MoonPage, MarketplacePage, PhilosophyPage,
-    ProfilePage, PricingPage, OnboardingPage,
+    ProfilePage, PricingPage, PlanCheckoutPage, PoliciesPage, OnboardingPage,
     ChatPage, VideoCallPage, AboutPage, SetupPage, MyBookingsPage, WelcomePage,
     TweaksPanel, TweakSection, TweakRadio, useTweaks,
   } = window;
@@ -244,7 +244,7 @@ function App() {
   }
 
   // Fullscreen routes: skip Nav for immersive flows
-  const fullscreenRoutes = ['onboarding', 'chat', 'videocall', 'welcome'];
+  const fullscreenRoutes = ['onboarding', 'chat', 'videocall', 'welcome', 'plancheckout'];
   const isFullscreen = fullscreenRoutes.includes(route.page);
 
   // Route rendering
@@ -263,6 +263,8 @@ function App() {
     case 'merch':        page = <MerchPage lang={lang} setRoute={setRoute} />; break;
     case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} onSignOut={signOut} requireAuth={requireAuth} />; break;
     case 'pricing':     page = <PricingPage lang={lang} setRoute={setRoute} profile={profile} />; break;
+    case 'plancheckout': page = <PlanCheckoutPage lang={lang} setRoute={setRoute} profile={profile} planKey={route.planKey} billing={route.billing} />; break;
+    case 'policies':    page = <PoliciesPage lang={lang} setRoute={setRoute} />; break;
     case 'onboarding':  page = <OnboardingPage lang={lang} setRoute={setRoute} />; break;
     case 'chat':        page = <ChatPage lang={lang} setRoute={setRoute} tarotistId={route.tarotistId} />; break;
     case 'videocall':   page = <VideoCallPage lang={lang} setRoute={setRoute} accessCode={route.accessCode} />; break;
