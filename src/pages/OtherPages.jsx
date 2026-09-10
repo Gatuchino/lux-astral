@@ -4166,20 +4166,25 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
             </div>
 
             {step === 'intro' && (
-              <div className="checkout-body">
-                <div
-                  className="session-orb"
-                  style={{ background: `radial-gradient(circle at 30% 30%, ${tarotist.color}, ${tarotist.color}55 60%, ${tarotist.color}11)` }}
-                >
-                  <span>{tarotist.initials}</span>
+              <>
+                <div className="checkout-hero" style={{ backgroundImage: 'url(assets/live-sessions-table.jpg)' }}>
+                  <div className="checkout-hero-overlay" />
+                  <div className="checkout-hero-inner">
+                    <div
+                      className="session-orb"
+                      style={{ background: `radial-gradient(circle at 30% 30%, ${tarotist.color}, ${tarotist.color}55 60%, ${tarotist.color}11)` }}
+                    >
+                      <span>{tarotist.initials}</span>
+                    </div>
+                    <div className="eyebrow">✦ {es ? '¡Excelente elección!' : 'Excellent choice!'} ✦</div>
+                    <h1 className="checkout-h">{tarotist.name}</h1>
+                    <p className="checkout-tag italic">
+                      {es ? tarotist.specialty_es : tarotist.specialty_en}
+                    </p>
+                  </div>
                 </div>
-                <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 8 }}>✦ {es ? '¡Excelente elección!' : 'Excellent choice!'} ✦</div>
-                <h1 className="checkout-h" style={{ textAlign: 'center' }}>{tarotist.name}</h1>
-                <p className="checkout-tag italic" style={{ textAlign: 'center' }}>
-                  {es ? tarotist.specialty_es : tarotist.specialty_en}
-                </p>
-
-                <p className="checkout-lead" style={{ marginTop: 20 }}>
+              <div className="checkout-body">
+                <p className="checkout-lead">
                   {es
                     ? `Vas a agendar una sesión completa en vivo con ${tarotist.name}. Esto es lo que incluye:`
                     : `You're about to book a full live session with ${tarotist.name}. Here's what it includes:`}
@@ -4212,6 +4217,7 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
                   {es ? 'Continuar' : 'Continue'} →
                 </button>
               </div>
+              </>
             )}
 
             {step === 'payment' && (
