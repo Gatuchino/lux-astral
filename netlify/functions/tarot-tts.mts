@@ -5,6 +5,40 @@
 // POST body: { text: string, voiceId?: string }
 // Respuesta: audio/mpeg (binario)
 
+import { getStore } from "@netlify/blobs";
+
+// 2026-09-10 (a pedido de Christian): registro de uso/costo de IA para el
+// panel de Setup -- ver el mismo bloque (y su comentario completo) en
+// netlify/functions/tarot-generate-background.mts. ElevenLabs cobra por
+// caracter, no por token.
+const ELEVENLABS_DEFAULT_PRICE_PER_CHAR = 0.00005; // eleven_flash_v2_5, USD/caracter
+async function logAiUsage(entry: { kind: string; provider: string; model: string; characters: number }) {
+  try {
+    const store = getStore({ name: "booking", consistency: "strong" });
+    const raw = (await store.get("state", { type: "json" })) as any;
+    const data = raw && typeof raw === "object" ? raw : {};
+    if (!Array.isArray(data.aiUsageLog)) data.aiUsageLog = [];
+    const per = data.settings?.aiPricing?.elevenlabs?.perCharUsd ?? ELEVENLABS_DEFAULT_PRICE_PER_CHAR;
+    data.aiUsageLog.push({
+      id: crypto.randomUUID(),
+      ts: Date.now(),
+      kind: entry.kind,
+      provider: entry.provider,
+      model: entry.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      characters: entry.characters,
+      costUsd: entry.characters * per,
+    });
+    const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    data.aiUsageLog = data.aiUsageLog.filter((e: any) => e.ts >= cutoff);
+    if (data.aiUsageLog.length > 20000) data.aiUsageLog = data.aiUsageLog.slice(data.aiUsageLog.length - 20000);
+    await store.setJSON("state", data);
+  } catch (e) {
+    // silencioso -- nunca debe afectar la entrega del audio.
+  }
+}
+
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // voz premade cálida de ElevenLabs, cambiable desde Setup
 // ElevenLabs cobra por caracter y eleven_multilingual_v2 admite hasta 10.000
 // por request — dejamos margen (9000) y, si igual hay que recortar, lo hacemos
@@ -69,6 +103,8 @@ export default async (req: Request, context: any) => {
       body: JSON.stringify({ text: clipped, model_id: "eleven_flash_v2_5" }),
     });
     if (!elRes.ok) throw await apiError(elRes);
+    // No se espera (fire-and-forget): no debe demorar el streaming del audio.
+    logAiUsage({ kind: "tts", provider: "elevenlabs", model: "eleven_flash_v2_5", characters: clipped.length });
     return new Response(elRes.body, {
       status: 200,
       headers: { "content-type": "audio/mpeg" },

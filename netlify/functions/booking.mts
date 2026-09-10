@@ -30,6 +30,116 @@ const DEFAULT_NEWSLETTER_SPECIAL_DATES = [
   { date: "05-01", label_es: "Día del Trabajo", label_en: "Labor Day" },
   { date: "12-25", label_es: "Navidad", label_en: "Christmas" },
 ];
+
+// 2026-09-10 (a pedido de Christian): panel "Uso de IA y costos" en Setup
+// -- registro de cada consulta a un proveedor de IA (lectura de tarot por
+// tipo, seguimiento, boletín diario, texto a voz de ElevenLabs) con sus
+// tokens (o caracteres, para ElevenLabs) y el costo USD calculado con la
+// tarifa vigente. Precios en USD por millón de tokens (input/output),
+// tomados de las tarifas publicadas por cada proveedor a esta fecha --
+// store.settings.aiPricing (editable desde Setup) pisa estos valores por
+// defecto cuando cambien las tarifas, sin tocar código. Los otros dos
+// puntos de llamada a la IA (netlify/functions/tarot-generate-background.mts
+// para lecturas, netlify/functions/tarot-tts.mts para voz) llevan su
+// propia copia de esta misma tabla -- son Functions separadas sin módulos
+// compartidos entre sí (mismo patrón que el resto del proyecto).
+const DEFAULT_AI_PRICING: Record<string, any> = {
+  anthropic: {
+    "claude-haiku-4-5-20251001": { in: 1, out: 5 },
+    "claude-sonnet-5": { in: 2, out: 10 },
+    "claude-opus-5": { in: 5, out: 25 },
+    "claude-fable-5-1": { in: 10, out: 50 },
+  },
+  openai: {
+    "gpt-5.6-luna": { in: 1, out: 6 },
+    "gpt-5.6-terra": { in: 2.5, out: 15 },
+    "gpt-6-astra": { in: 10, out: 50 },
+  },
+  glm: {
+    "glm-4.5-flash": { in: 0, out: 0 },
+    "glm-4.6": { in: 0.6, out: 2.2 },
+    "glm-5.3": { in: 1.4, out: 4.4 },
+  },
+  gemini: {
+    "gemini-2.5-flash": { in: 0.3, out: 2.5 },
+    "gemini-3.5-flash": { in: 1.5, out: 9 },
+    "gemini-2.5-pro": { in: 1.25, out: 10 },
+  },
+  elevenlabs: { perCharUsd: 0.00005 },
+};
+function calcAiCostUsd(pricing: any, provider: string, model: string, inputTokens: number, outputTokens: number, characters?: number) {
+  if (provider === "elevenlabs") {
+    const per = pricing?.elevenlabs?.perCharUsd ?? DEFAULT_AI_PRICING.elevenlabs.perCharUsd;
+    return (characters || 0) * per;
+  }
+  const rates = pricing?.[provider]?.[model] || DEFAULT_AI_PRICING[provider]?.[model] || { in: 0, out: 0 };
+  return ((inputTokens || 0) / 1e6) * rates.in + ((outputTokens || 0) / 1e6) * rates.out;
+}
+function logAiUsage(store: any, entry: { kind: string; provider: string; model: string; inputTokens?: number; outputTokens?: number; characters?: number }) {
+  if (!Array.isArray(store.aiUsageLog)) store.aiUsageLog = [];
+  const costUsd = calcAiCostUsd(store.settings?.aiPricing, entry.provider, entry.model, entry.inputTokens || 0, entry.outputTokens || 0, entry.characters || 0);
+  store.aiUsageLog.push({
+    id: crypto.randomUUID(),
+    ts: Date.now(),
+    kind: String(entry.kind || "").slice(0, 40),
+    provider: String(entry.provider || "").slice(0, 20),
+    model: String(entry.model || "").slice(0, 60),
+    inputTokens: entry.inputTokens || 0,
+    outputTokens: entry.outputTokens || 0,
+    characters: entry.characters || 0,
+    costUsd,
+  });
+  const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000; // 180 días
+  store.aiUsageLog = store.aiUsageLog.filter((e: any) => e.ts >= cutoff);
+  if (store.aiUsageLog.length > 20000) store.aiUsageLog = store.aiUsageLog.slice(store.aiUsageLog.length - 20000);
+}
+// Arma el resumen que consume el panel de Setup: totales, desglose por
+// día/mes/tipo/modelo, y las últimas consultas individuales (con su
+// costo) para el detalle "token por pregunta".
+function buildAiUsageSummary(store: any) {
+  const log = Array.isArray(store.aiUsageLog) ? store.aiUsageLog : [];
+  const dayKey = (ts: number) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "America/Santiago" });
+  const bump = (map: Record<string, any>, key: string, e: any) => {
+    if (!map[key]) map[key] = { queries: 0, inputTokens: 0, outputTokens: 0, characters: 0, costUsd: 0 };
+    map[key].queries += 1;
+    map[key].inputTokens += e.inputTokens || 0;
+    map[key].outputTokens += e.outputTokens || 0;
+    map[key].characters += e.characters || 0;
+    map[key].costUsd += e.costUsd || 0;
+  };
+  const byDay: Record<string, any> = {};
+  const byMonth: Record<string, any> = {};
+  const byKind: Record<string, any> = {};
+  const byModel: Record<string, any> = {};
+  const totals = { queries: 0, inputTokens: 0, outputTokens: 0, characters: 0, costUsd: 0 };
+  log.forEach((e: any) => {
+    const dk = dayKey(e.ts);
+    bump(byDay, dk, e);
+    bump(byMonth, dk.slice(0, 7), e);
+    bump(byKind, e.kind || "otro", e);
+    bump(byModel, `${e.provider || "?"} / ${e.model || "?"}`, e);
+    totals.queries += 1;
+    totals.inputTokens += e.inputTokens || 0;
+    totals.outputTokens += e.outputTokens || 0;
+    totals.characters += e.characters || 0;
+    totals.costUsd += e.costUsd || 0;
+  });
+  const today = dayKey(Date.now());
+  const month = today.slice(0, 7);
+  const recent = log.slice().sort((a: any, b: any) => b.ts - a.ts).slice(0, 80);
+  return {
+    totals,
+    todayCostUsd: (byDay[today] && byDay[today].costUsd) || 0,
+    monthCostUsd: (byMonth[month] && byMonth[month].costUsd) || 0,
+    byDay,
+    byMonth,
+    byKind,
+    byModel,
+    recent,
+    pricing: store.settings?.aiPricing || {},
+    defaultPricing: DEFAULT_AI_PRICING,
+  };
+}
 // assets/cards/NN-slug.jpg -- lista fija de las 22 cartas mayores (las
 // únicas que puede salir como carta del día), evita tener que listar el
 // directorio (no disponible vía fetch a un sitio estático).
@@ -262,6 +372,7 @@ function seedStore() {
     users: [] as any[],
     userSessions: {} as Record<string, any>,
     pendingSignups: {} as Record<string, any>,
+    aiUsageLog: [] as any[],
   };
 }
 
@@ -291,6 +402,7 @@ async function loadStore() {
   if (!Array.isArray(raw.users)) raw.users = [];
   if (!raw.userSessions || typeof raw.userSessions !== "object") raw.userSessions = {};
   if (!raw.pendingSignups || typeof raw.pendingSignups !== "object") raw.pendingSignups = {};
+  if (!Array.isArray(raw.aiUsageLog)) raw.aiUsageLog = [];
   if (!raw.settings.setupPasswordHash) {
     raw.settings.setupPasswordHash = await hashSetupPassword(DEFAULT_SETUP_PASSWORD);
   }
@@ -805,6 +917,17 @@ CONSEJO: <texto>`;
   }
   const data: any = await res.json();
   const text = (data.content || []).map((b: any) => b.text || "").join("").trim();
+  try {
+    logAiUsage(store, {
+      kind: "newsletter",
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      inputTokens: data.usage?.input_tokens || 0,
+      outputTokens: data.usage?.output_tokens || 0,
+    });
+  } catch (e) {
+    // silencioso -- nunca debe impedir el envío del boletín.
+  }
   const parts = text.split("---").map((p: string) => p.trim());
   const pick = (label: string, fallback: string) => {
     const p = parts.find((x: string) => x.toUpperCase().startsWith(label + ":"));
@@ -1019,6 +1142,12 @@ export default async (req: Request) => {
           return json(401, { error: "Contraseña de administración incorrecta o faltante." });
         }
         return json(200, buildReports(store));
+      }
+      if (action === "get-ai-usage-summary") {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get("setupToken") || "" })) {
+          return json(401, { error: "Contraseña de administración incorrecta o faltante." });
+        }
+        return json(200, buildAiUsageSummary(store));
       }
       return json(404, { error: "Acción GET desconocida." });
     }
@@ -1554,6 +1683,14 @@ export default async (req: Request) => {
       store.settings.lastNewsletterSentDate = today;
       await saveStore(store);
       return json(200, { sent, failed, total: recipients.length, cardName: content.cardName, preview: content.html });
+    }
+
+    if (action === "save-ai-pricing") {
+      if (!requireAdmin(store, payload, action)) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
+      const incoming = payload.pricing && typeof payload.pricing === "object" ? payload.pricing : {};
+      store.settings.aiPricing = incoming;
+      await saveStore(store);
+      return json(200, { ok: true, pricing: store.settings.aiPricing });
     }
 
     if (action === "send-announcement") {

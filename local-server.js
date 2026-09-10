@@ -82,7 +82,8 @@ const PROVIDERS = {
       });
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
-      return (data.content || []).map((b) => b.text || '').join('').trim();
+      const text = (data.content || []).map((b) => b.text || '').join('').trim();
+      return { text, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
     },
   },
   openai: {
@@ -97,7 +98,8 @@ const PROVIDERS = {
       });
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
-      return ((data.choices || [])[0]?.message?.content || '').trim();
+      const text = ((data.choices || [])[0]?.message?.content || '').trim();
+      return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
     },
   },
   glm: {
@@ -115,7 +117,8 @@ const PROVIDERS = {
       });
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
-      return ((data.choices || [])[0]?.message?.content || '').trim();
+      const text = ((data.choices || [])[0]?.message?.content || '').trim();
+      return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
     },
   },
   gemini: {
@@ -136,7 +139,8 @@ const PROVIDERS = {
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
       const parts = data.candidates?.[0]?.content?.parts || [];
-      return parts.map((p) => p.text || '').join('').trim();
+      const text = parts.map((p) => p.text || '').join('').trim();
+      return { text, inputTokens: data.usageMetadata?.promptTokenCount || 0, outputTokens: data.usageMetadata?.candidatesTokenCount || 0 };
     },
   },
 };
@@ -172,7 +176,7 @@ async function handleInterpret(req, res) {
     }
 
     // ---- Modo "start" ----
-    const { prompts, maxTokensList, model, provider, ticketId, isFollowUp } = payload || {};
+    const { prompts, maxTokensList, model, provider, ticketId, isFollowUp, readingType } = payload || {};
     if (!Array.isArray(prompts) || prompts.length === 0 || !prompts.every((p) => typeof p === 'string' && p)) {
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'Falta "prompts" (array).' }));
@@ -218,14 +222,24 @@ async function handleInterpret(req, res) {
     // generan en paralelo y se unen en orden -- mismo contrato que
     // tarot-generate-background.mts en produccion.
     try {
-      const texts = await Promise.all(
+      const results = await Promise.all(
         prompts.map((p, i) => prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey))
       );
       // Mismo separador que tarot-generate-background.mts en produccion
       // (ver comentario alli) -- para que el front dibuje el divisor
       // ornamental entre partes tambien en desarrollo local.
-      const text = texts.map((t) => (t || '').trim()).filter(Boolean).join('\n\n§§ARCANA-SECTION§§\n\n');
+      const text = results.map((r) => (r.text || '').trim()).filter(Boolean).join('\n\n§§ARCANA-SECTION§§\n\n');
       localInterpretJobs.set(jobId, { status: 'done', text, createdAt: Date.now() });
+      try {
+        const inputTokens = results.reduce((sum, r) => sum + (r.inputTokens || 0), 0);
+        const outputTokens = results.reduce((sum, r) => sum + (r.outputTokens || 0), 0);
+        const kind = isFollowUp ? 'reading-followup' : `reading-tipo-${readingType || '?'}`;
+        const usageStore = loadBookingStore();
+        logAiUsage(usageStore, { kind, provider: providerId, model: chosenModel, inputTokens, outputTokens });
+        saveBookingStore(usageStore);
+      } catch (e) {
+        // silencioso -- el usuario ya tiene su lectura, no hay nada que mostrarle.
+      }
     } catch (e) {
       console.error('[tarot-interpret]', providerId, chosenModel, e.status || '', e.detail || e.message || e);
       localInterpretJobs.set(jobId, {
@@ -293,6 +307,13 @@ async function handleTTS(req, res) {
         body: JSON.stringify({ text: clipped, model_id: 'eleven_flash_v2_5' }),
       });
       if (!elRes.ok) throw await apiError(elRes);
+      try {
+        const usageStore = loadBookingStore();
+        logAiUsage(usageStore, { kind: 'tts', provider: 'elevenlabs', model: 'eleven_flash_v2_5', characters: clipped.length });
+        saveBookingStore(usageStore);
+      } catch (e) {
+        // silencioso -- nunca debe afectar la entrega del audio.
+      }
       res.writeHead(200, { 'content-type': 'audio/mpeg' });
       Readable.fromWeb(elRes.body).pipe(res);
     } catch (e) {
@@ -402,6 +423,103 @@ function requireAdmin(store, payload, actionName) {
     saveBookingStore(store);
   }
   return email;
+}
+
+// 2026-09-10 (a pedido de Christian): panel "Uso de IA y costos" en Setup
+// -- ver el comentario completo en netlify/functions/booking.mts (misma
+// lógica acá). Registro de cada consulta a un proveedor de IA con sus
+// tokens (o caracteres, para ElevenLabs) y el costo USD calculado con la
+// tarifa vigente (store.settings.aiPricing, editable desde Setup, pisa
+// estos valores por defecto).
+const DEFAULT_AI_PRICING = {
+  anthropic: {
+    'claude-haiku-4-5-20251001': { in: 1, out: 5 },
+    'claude-sonnet-5': { in: 2, out: 10 },
+    'claude-opus-5': { in: 5, out: 25 },
+    'claude-fable-5-1': { in: 10, out: 50 },
+  },
+  openai: {
+    'gpt-5.6-luna': { in: 1, out: 6 },
+    'gpt-5.6-terra': { in: 2.5, out: 15 },
+    'gpt-6-astra': { in: 10, out: 50 },
+  },
+  glm: {
+    'glm-4.5-flash': { in: 0, out: 0 },
+    'glm-4.6': { in: 0.6, out: 2.2 },
+    'glm-5.3': { in: 1.4, out: 4.4 },
+  },
+  gemini: {
+    'gemini-2.5-flash': { in: 0.3, out: 2.5 },
+    'gemini-3.5-flash': { in: 1.5, out: 9 },
+    'gemini-2.5-pro': { in: 1.25, out: 10 },
+  },
+  elevenlabs: { perCharUsd: 0.00005 },
+};
+function calcAiCostUsd(pricing, provider, model, inputTokens, outputTokens, characters) {
+  if (provider === 'elevenlabs') {
+    const per = pricing?.elevenlabs?.perCharUsd ?? DEFAULT_AI_PRICING.elevenlabs.perCharUsd;
+    return (characters || 0) * per;
+  }
+  const rates = pricing?.[provider]?.[model] || DEFAULT_AI_PRICING[provider]?.[model] || { in: 0, out: 0 };
+  return ((inputTokens || 0) / 1e6) * rates.in + ((outputTokens || 0) / 1e6) * rates.out;
+}
+function logAiUsage(store, entry) {
+  if (!Array.isArray(store.aiUsageLog)) store.aiUsageLog = [];
+  const costUsd = calcAiCostUsd(store.settings?.aiPricing, entry.provider, entry.model, entry.inputTokens || 0, entry.outputTokens || 0, entry.characters || 0);
+  store.aiUsageLog.push({
+    id: crypto.randomUUID(),
+    ts: Date.now(),
+    kind: String(entry.kind || '').slice(0, 40),
+    provider: String(entry.provider || '').slice(0, 20),
+    model: String(entry.model || '').slice(0, 60),
+    inputTokens: entry.inputTokens || 0,
+    outputTokens: entry.outputTokens || 0,
+    characters: entry.characters || 0,
+    costUsd,
+  });
+  const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
+  store.aiUsageLog = store.aiUsageLog.filter((e) => e.ts >= cutoff);
+  if (store.aiUsageLog.length > 20000) store.aiUsageLog = store.aiUsageLog.slice(store.aiUsageLog.length - 20000);
+}
+function buildAiUsageSummary(store) {
+  const log = Array.isArray(store.aiUsageLog) ? store.aiUsageLog : [];
+  const dayKey = (ts) => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  const bump = (map, key, e) => {
+    if (!map[key]) map[key] = { queries: 0, inputTokens: 0, outputTokens: 0, characters: 0, costUsd: 0 };
+    map[key].queries += 1;
+    map[key].inputTokens += e.inputTokens || 0;
+    map[key].outputTokens += e.outputTokens || 0;
+    map[key].characters += e.characters || 0;
+    map[key].costUsd += e.costUsd || 0;
+  };
+  const byDay = {};
+  const byMonth = {};
+  const byKind = {};
+  const byModel = {};
+  const totals = { queries: 0, inputTokens: 0, outputTokens: 0, characters: 0, costUsd: 0 };
+  log.forEach((e) => {
+    const dk = dayKey(e.ts);
+    bump(byDay, dk, e);
+    bump(byMonth, dk.slice(0, 7), e);
+    bump(byKind, e.kind || 'otro', e);
+    bump(byModel, `${e.provider || '?'} / ${e.model || '?'}`, e);
+    totals.queries += 1;
+    totals.inputTokens += e.inputTokens || 0;
+    totals.outputTokens += e.outputTokens || 0;
+    totals.characters += e.characters || 0;
+    totals.costUsd += e.costUsd || 0;
+  });
+  const today = dayKey(Date.now());
+  const month = today.slice(0, 7);
+  const recent = log.slice().sort((a, b) => b.ts - a.ts).slice(0, 80);
+  return {
+    totals,
+    todayCostUsd: (byDay[today] && byDay[today].costUsd) || 0,
+    monthCostUsd: (byMonth[month] && byMonth[month].costUsd) || 0,
+    byDay, byMonth, byKind, byModel, recent,
+    pricing: store.settings?.aiPricing || {},
+    defaultPricing: DEFAULT_AI_PRICING,
+  };
 }
 // 2026-09-08 (a pedido de Christian): panel "Informes" en Setup — accesos
 // por usuario, tiempo aproximado en la plataforma, secciones visitadas, y
@@ -530,6 +648,7 @@ function loadBookingStore() {
     }
     if (!store.setupSessions || typeof store.setupSessions !== 'object') store.setupSessions = {};
     if (!Array.isArray(store.eventLog)) store.eventLog = [];
+    if (!Array.isArray(store.aiUsageLog)) store.aiUsageLog = [];
     if (!Array.isArray(store.users)) store.users = [];
     if (!store.userSessions || typeof store.userSessions !== 'object') store.userSessions = {};
     if (!store.pendingSignups || typeof store.pendingSignups !== 'object') store.pendingSignups = {};
@@ -583,6 +702,7 @@ function loadBookingStore() {
       },
       setupSessions: {},
       eventLog: [],
+      aiUsageLog: [],
       users: [],
       userSessions: {},
       pendingSignups: {},
@@ -1112,7 +1232,15 @@ FRASE: <texto>
 CONSEJO_TITULO: <texto>
 ---
 CONSEJO: <texto>`;
-  const text = await PROVIDERS.anthropic.call(prompt, 900, PROVIDERS.anthropic.defaultModel, apiKey);
+  const aiResult = await PROVIDERS.anthropic.call(prompt, 900, PROVIDERS.anthropic.defaultModel, apiKey);
+  const text = aiResult.text;
+  try {
+    const usageStore = loadBookingStore();
+    logAiUsage(usageStore, { kind: 'newsletter', provider: 'anthropic', model: PROVIDERS.anthropic.defaultModel, inputTokens: aiResult.inputTokens, outputTokens: aiResult.outputTokens });
+    saveBookingStore(usageStore);
+  } catch (e) {
+    // silencioso -- nunca debe impedir el envío del boletín.
+  }
   const parts = text.split('---').map((p) => p.trim());
   const pick = (label, fallback) => {
     const p = parts.find((x) => x.toUpperCase().startsWith(label + ':'));
@@ -1282,6 +1410,10 @@ async function handleBooking(req, res, url) {
           .filter((b) => b.when && new Date(b.when).getTime() > now - 60 * 60 * 1000)
           .sort((a, b) => new Date(a.when) - new Date(b.when));
         return sendJson(res, 200, { sessions: list });
+      }
+      if (action === 'get-ai-usage-summary') {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+        return sendJson(res, 200, buildAiUsageSummary(store));
       }
       if (action === 'subscription-plans') {
         return sendJson(res, 200, { plans: store.settings.paypalPlanIds || null, paypalClientId: process.env.PAYPAL_CLIENT_ID || '' });
@@ -1910,6 +2042,14 @@ async function handleBooking(req, res, url) {
       store.settings.lastNewsletterSentDate = today;
       saveBookingStore(store);
       return sendJson(res, 200, { sent, failed, total: recipients.length, cardName: content.cardName, preview: content.html });
+    }
+
+    if (action === 'save-ai-pricing') {
+      if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+      const incoming = payload.pricing && typeof payload.pricing === 'object' ? payload.pricing : {};
+      store.settings.aiPricing = incoming;
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true, pricing: store.settings.aiPricing });
     }
 
     if (action === 'send-announcement') {

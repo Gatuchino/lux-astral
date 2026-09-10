@@ -24,6 +24,76 @@ async function apiError(res: Response) {
   return err;
 }
 
+// 2026-09-10 (a pedido de Christian): registro de uso/costo de IA para el
+// panel de Setup ("Uso de IA y costos"). Precios en USD por millon de
+// tokens (input/output), tomados de las tarifas publicadas por cada
+// proveedor a esta fecha -- editables desde Setup (store.settings.aiPricing
+// pisa estos valores por defecto sin tocar codigo cuando cambien las
+// tarifas). ElevenLabs cobra por caracter, no por token.
+const DEFAULT_AI_PRICING: Record<string, any> = {
+  anthropic: {
+    "claude-haiku-4-5-20251001": { in: 1, out: 5 },
+    "claude-sonnet-5": { in: 2, out: 10 },
+    "claude-opus-5": { in: 5, out: 25 },
+    "claude-fable-5-1": { in: 10, out: 50 },
+  },
+  openai: {
+    "gpt-5.6-luna": { in: 1, out: 6 },
+    "gpt-5.6-terra": { in: 2.5, out: 15 },
+    "gpt-6-astra": { in: 10, out: 50 },
+  },
+  glm: {
+    "glm-4.5-flash": { in: 0, out: 0 },
+    "glm-4.6": { in: 0.6, out: 2.2 },
+    "glm-5.3": { in: 1.4, out: 4.4 },
+  },
+  gemini: {
+    "gemini-2.5-flash": { in: 0.3, out: 2.5 },
+    "gemini-3.5-flash": { in: 1.5, out: 9 },
+    "gemini-2.5-pro": { in: 1.25, out: 10 },
+  },
+  elevenlabs: { perCharUsd: 0.00005 },
+};
+
+function calcAiCostUsd(pricing: any, provider: string, model: string, inputTokens: number, outputTokens: number, characters?: number) {
+  if (provider === "elevenlabs") {
+    const per = pricing?.elevenlabs?.perCharUsd ?? DEFAULT_AI_PRICING.elevenlabs.perCharUsd;
+    return (characters || 0) * per;
+  }
+  const rates = pricing?.[provider]?.[model] || DEFAULT_AI_PRICING[provider]?.[model] || { in: 0, out: 0 };
+  return ((inputTokens || 0) / 1e6) * rates.in + ((outputTokens || 0) / 1e6) * rates.out;
+}
+
+function bookingStore() {
+  return getStore({ name: "booking", consistency: "strong" });
+}
+
+async function logAiUsage(entry: { kind: string; provider: string; model: string; inputTokens?: number; outputTokens?: number; characters?: number }) {
+  // Fire-and-forget desde el llamador: si esto falla, nunca debe tumbar la
+  // entrega de la lectura -- ver el try/catch en el handler mas abajo.
+  const store = bookingStore();
+  const raw = (await store.get("state", { type: "json" })) as any;
+  const data = raw && typeof raw === "object" ? raw : {};
+  if (!Array.isArray(data.aiUsageLog)) data.aiUsageLog = [];
+  const pricing = data.settings?.aiPricing;
+  const costUsd = calcAiCostUsd(pricing, entry.provider, entry.model, entry.inputTokens || 0, entry.outputTokens || 0, entry.characters || 0);
+  data.aiUsageLog.push({
+    id: crypto.randomUUID(),
+    ts: Date.now(),
+    kind: String(entry.kind || "").slice(0, 40),
+    provider: String(entry.provider || "").slice(0, 20),
+    model: String(entry.model || "").slice(0, 60),
+    inputTokens: entry.inputTokens || 0,
+    outputTokens: entry.outputTokens || 0,
+    characters: entry.characters || 0,
+    costUsd,
+  });
+  const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000; // 180 dias
+  data.aiUsageLog = data.aiUsageLog.filter((e: any) => e.ts >= cutoff);
+  if (data.aiUsageLog.length > 20000) data.aiUsageLog = data.aiUsageLog.slice(data.aiUsageLog.length - 20000);
+  await store.setJSON("state", data);
+}
+
 // OpenAI, GLM y Gemini "piensan" antes de responder (razonamiento oculto que
 // gasta del mismo cupo de tokens que la respuesta visible). Con un cupo chico
 // el modelo se queda sin lugar para escribir y la respuesta sale cortada a la
@@ -34,11 +104,13 @@ function effectiveMaxTokens(providerId: string, requested: number) {
   return Math.max(base, 2000);
 }
 
+type CallResult = { text: string; inputTokens: number; outputTokens: number };
+
 const PROVIDERS: Record<string, {
   envKey: string;
   defaultModel: string;
   allowedModels: Set<string>;
-  call: (prompt: string, maxTokens: number, model: string, apiKey: string) => Promise<string>;
+  call: (prompt: string, maxTokens: number, model: string, apiKey: string) => Promise<CallResult>;
 }> = {
   anthropic: {
     envKey: "ANTHROPIC_API_KEY",
@@ -52,7 +124,8 @@ const PROVIDERS: Record<string, {
       });
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
-      return (data.content || []).map((b: any) => b.text || "").join("").trim();
+      const text = (data.content || []).map((b: any) => b.text || "").join("").trim();
+      return { text, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
     },
   },
   openai: {
@@ -67,7 +140,8 @@ const PROVIDERS: Record<string, {
       });
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
-      return ((data.choices || [])[0]?.message?.content || "").trim();
+      const text = ((data.choices || [])[0]?.message?.content || "").trim();
+      return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
     },
   },
   glm: {
@@ -82,7 +156,8 @@ const PROVIDERS: Record<string, {
       });
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
-      return ((data.choices || [])[0]?.message?.content || "").trim();
+      const text = ((data.choices || [])[0]?.message?.content || "").trim();
+      return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
     },
   },
   gemini: {
@@ -101,7 +176,8 @@ const PROVIDERS: Record<string, {
       if (!res.ok) throw await apiError(res);
       const data = await res.json();
       const parts = data.candidates?.[0]?.content?.parts || [];
-      return parts.map((p: any) => p.text || "").join("").trim();
+      const text = parts.map((p: any) => p.text || "").join("").trim();
+      return { text, inputTokens: data.usageMetadata?.promptTokenCount || 0, outputTokens: data.usageMetadata?.candidatesTokenCount || 0 };
     },
   },
 };
@@ -113,7 +189,7 @@ export default async (req: Request, context: any) => {
   } catch (e) {
     return; // el llamador no lee esta respuesta -- ver comentario arriba
   }
-  const { jobId, prompts, maxTokensList, model, provider } = payload || {};
+  const { jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp } = payload || {};
   if (!jobId || !Array.isArray(prompts) || prompts.length === 0) return;
 
   const providerId = provider && PROVIDERS[provider] ? provider : "anthropic";
@@ -133,7 +209,7 @@ export default async (req: Request, context: any) => {
   // acortar la espera), se generan en PARALELO y se unen en orden -- ver
   // Reading.jsx (requestLLMInterpretation) para como se arman los grupos.
   try {
-    const texts = await Promise.all(
+    const results = await Promise.all(
       prompts.map((p: string, i: number) =>
         prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey)
       )
@@ -143,8 +219,20 @@ export default async (req: Request, context: any) => {
     // separador ornamental entre bloques de la lectura. Si solo hubo un
     // prompt (Tipo 1/2, o respuesta de seguimiento) no aparece ningun
     // separador -- el texto queda igual que antes.
-    const text = texts.map((t) => (t || "").trim()).filter(Boolean).join("\n\n§§ARCANA-SECTION§§\n\n");
+    const text = results.map((r) => (r.text || "").trim()).filter(Boolean).join("\n\n§§ARCANA-SECTION§§\n\n");
     await jobsStore().setJSON(jobId, { status: "done", text, createdAt: Date.now() });
+
+    // 2026-09-10: registro de uso/costo para el panel de Setup. Nunca debe
+    // interrumpir la entrega de la lectura (ya se guardo arriba) -- por eso
+    // va en su propio try/catch, despues.
+    try {
+      const inputTokens = results.reduce((sum, r) => sum + (r.inputTokens || 0), 0);
+      const outputTokens = results.reduce((sum, r) => sum + (r.outputTokens || 0), 0);
+      const kind = isFollowUp ? "reading-followup" : `reading-tipo-${readingType || "?"}`;
+      await logAiUsage({ kind, provider: providerId, model: chosenModel, inputTokens, outputTokens });
+    } catch (e) {
+      // silencioso -- el usuario ya tiene su lectura, no hay nada que mostrarle.
+    }
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {
       status: "error",

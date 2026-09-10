@@ -220,6 +220,19 @@ window.arcanaGetReports = async function () {
   return json; // { users, movements, adminActions, totalEvents }
 };
 
+// Uso de IA y costos (a pedido de Christian, 2026-09-10): consultas por
+// tipo (lecturas por Tipo 1-5, seguimientos, boletín, voz ElevenLabs),
+// tokens/caracteres por consulta, modelos usados, y costo USD estimado
+// por día/mes según la tarifa vigente de cada proveedor.
+window.arcanaGetAiUsageSummary = async function () {
+  const setupToken = (() => { try { return JSON.parse(sessionStorage.getItem('arcana_setup_session') || 'null')?.token || ''; } catch { return ''; } })();
+  const res = await fetch('/.netlify/functions/booking?action=get-ai-usage-summary&setupToken=' + encodeURIComponent(setupToken));
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'No se pudo cargar el uso de IA.');
+  return json; // { totals, todayCostUsd, monthCostUsd, byDay, byMonth, byKind, byModel, recent, pricing, defaultPricing }
+};
+window.arcanaSaveAiPricing = (pricing) => arcanaBookingCall('save-ai-pricing', { pricing }); // -> { ok, pricing }
+
 // Registro liviano de accesos y secciones visitadas (nunca preguntas ni
 // interpretaciones). Fire-and-forget: si falla, no interrumpe nada.
 window.arcanaLogEvent = (page) => arcanaBookingCall('log-event', { page }); // el email se deriva de la sesión si hay una activa

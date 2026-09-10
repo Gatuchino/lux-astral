@@ -14,6 +14,21 @@ const MOVEMENT_TYPE_LABELS = {
   'membership-revoked': { es: 'Membresía revocada', en: 'Membership revoked' },
   'subscription-cancelled': { es: 'Suscripción cancelada', en: 'Subscription cancelled' },
 };
+// Etiquetas legibles para el "tipo" de cada consulta de IA registrada
+// (ver logAiUsage en booking.mts / local-server.js). reading-tipo-N son
+// los 5 tipos de respuesta de una lectura (ver RESPONSE_TYPES en
+// Reading.jsx); el resto son los otros puntos donde se llama a una IA.
+const AI_USAGE_KIND_LABELS = {
+  'reading-tipo-1': { es: 'Lectura · Tipo 1', en: 'Reading · Type 1' },
+  'reading-tipo-2': { es: 'Lectura · Tipo 2', en: 'Reading · Type 2' },
+  'reading-tipo-3': { es: 'Lectura · Tipo 3', en: 'Reading · Type 3' },
+  'reading-tipo-4': { es: 'Lectura · Tipo 4', en: 'Reading · Type 4' },
+  'reading-tipo-5': { es: 'Lectura · Tipo 5', en: 'Reading · Type 5' },
+  'reading-followup': { es: 'Pregunta de seguimiento', en: 'Follow-up question' },
+  newsletter: { es: 'Boletín diario', en: 'Daily newsletter' },
+  tts: { es: 'Voz (ElevenLabs)', en: 'Voice (ElevenLabs)' },
+};
+const AI_USAGE_PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', glm: 'GLM (Z.ai)', gemini: 'Google Gemini', elevenlabs: 'ElevenLabs' };
 
 function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser }) {
   const t = window.I18N[lang];
@@ -109,6 +124,44 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       .finally(() => setReportsLoading(false));
   };
   React.useEffect(() => { if (session) loadReports(); }, [session]);
+
+  // ---------- Uso de IA y costos ----------
+  const [aiUsage, setAiUsage] = React.useState(null);
+  const [aiUsageLoading, setAiUsageLoading] = React.useState(false);
+  const [aiUsageError, setAiUsageError] = React.useState('');
+  const [aiPricingDraft, setAiPricingDraft] = React.useState(null);
+  const [aiPricingSaving, setAiPricingSaving] = React.useState(false);
+  const [aiPricingSaved, setAiPricingSaved] = React.useState(false);
+  const loadAiUsage = () => {
+    if (!session) return;
+    setAiUsageLoading(true);
+    setAiUsageError('');
+    window.arcanaGetAiUsageSummary()
+      .then((res) => {
+        setAiUsage(res);
+        const merged = {};
+        const providers = new Set([...Object.keys(res.defaultPricing || {}), ...Object.keys(res.pricing || {})]);
+        providers.forEach((prov) => {
+          merged[prov] = { ...(res.defaultPricing?.[prov] || {}), ...(res.pricing?.[prov] || {}) };
+        });
+        setAiPricingDraft(merged);
+      })
+      .catch((e) => setAiUsageError((e && e.message) || (es ? 'No se pudo cargar el uso de IA.' : "Couldn't load AI usage.")))
+      .finally(() => setAiUsageLoading(false));
+  };
+  React.useEffect(() => { if (session) loadAiUsage(); }, [session]);
+  const saveAiPricing = () => {
+    setAiPricingSaving(true);
+    window.arcanaSaveAiPricing(aiPricingDraft)
+      .then(() => {
+        setAiPricingSaved(true);
+        setTimeout(() => setAiPricingSaved(false), 1800);
+      })
+      .catch((e) => setAiUsageError((e && e.message) || (es ? 'No se pudo guardar la tarifa.' : "Couldn't save pricing.")))
+      .finally(() => setAiPricingSaving(false));
+  };
+  const fmtUsd = (n) => '$' + (n || 0).toLocaleString(es ? 'es-CL' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const fmtInt = (n) => (n || 0).toLocaleString(es ? 'es-CL' : 'en-US');
 
   // ---------- Tarotistas (roster compartido — Netlify Blobs en prod,
   // JSON local en local-server.js. Ver src/data/booking.js) ----------
@@ -1461,6 +1514,233 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             ? 'Para elegir una voz dulce y armoniosa: entrá a elevenlabs.io → Voice Library, buscá una que te guste, copiá su Voice ID y pegalo acá arriba.'
             : 'To pick a sweet, harmonious voice: go to elevenlabs.io → Voice Library, find one you like, copy its Voice ID and paste it above.'}
         </p>
+      </SetupSection>
+
+      {/* ---------- Uso de IA y costos ---------- */}
+      <SetupSection
+        title={es ? 'Uso de IA y costos' : 'AI usage and costs'}
+        desc={es
+          ? 'Registro de cada consulta a un proveedor de IA (lecturas por tipo, preguntas de seguimiento, boletín diario, y voz de ElevenLabs): tokens (o caracteres) consumidos y costo USD estimado, según la tarifa de cada proveedor configurada abajo.'
+          : "Log of every AI provider call (readings by type, follow-up questions, daily newsletter, and ElevenLabs voice): tokens (or characters) consumed and estimated USD cost, using each provider's rate configured below."}
+      >
+        <div className="setup-row" style={{ marginBottom: 12 }}>
+          <button className="btn btn-ghost" onClick={loadAiUsage} disabled={aiUsageLoading}>
+            {aiUsageLoading ? (es ? 'Actualizando…' : 'Refreshing…') : (es ? 'Actualizar' : 'Refresh')}
+          </button>
+          {aiUsage && (
+            <span className="italic" style={{ fontSize: 12, opacity: .6, alignSelf: 'center' }}>
+              {es
+                ? `Hoy: ${fmtUsd(aiUsage.todayCostUsd)} · Este mes: ${fmtUsd(aiUsage.monthCostUsd)} · ${fmtInt(aiUsage.totals.queries)} consultas (últimos 180 días)`
+                : `Today: ${fmtUsd(aiUsage.todayCostUsd)} · This month: ${fmtUsd(aiUsage.monthCostUsd)} · ${fmtInt(aiUsage.totals.queries)} queries (last 180 days)`}
+            </span>
+          )}
+        </div>
+        {aiUsageError && <p className="setup-gate-error">{aiUsageError}</p>}
+
+        <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Consultas por tipo' : 'Queries by type'}</h4>
+        {!aiUsage || Object.keys(aiUsage.byKind).length === 0 ? (
+          <p className="setup-empty italic">{es ? 'Todavía no hay consultas registradas.' : 'No queries logged yet.'}</p>
+        ) : (
+          <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', marginBottom: 20 }}>
+            <thead>
+              <tr style={{ opacity: .6, textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Tipo' : 'Type'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Consultas' : 'Queries'}</th>
+                <th style={{ padding: '4px 6px' }}>Tokens in</th>
+                <th style={{ padding: '4px 6px' }}>Tokens out</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Caracteres' : 'Characters'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Costo' : 'Cost'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(aiUsage.byKind).sort((a, b) => aiUsage.byKind[b].costUsd - aiUsage.byKind[a].costUsd).map((k) => {
+                const row = aiUsage.byKind[k];
+                const label = (AI_USAGE_KIND_LABELS[k] && AI_USAGE_KIND_LABELS[k][es ? 'es' : 'en']) || k;
+                return (
+                  <tr key={k} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                    <td style={{ padding: '4px 6px' }}>{label}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.queries)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.inputTokens)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.outputTokens)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.characters)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtUsd(row.costUsd)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Modelos usados' : 'Models used'}</h4>
+        {!aiUsage || Object.keys(aiUsage.byModel).length === 0 ? (
+          <p className="setup-empty italic">{es ? 'Todavía no hay consultas registradas.' : 'No queries logged yet.'}</p>
+        ) : (
+          <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', marginBottom: 20 }}>
+            <thead>
+              <tr style={{ opacity: .6, textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Modelo' : 'Model'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Consultas' : 'Queries'}</th>
+                <th style={{ padding: '4px 6px' }}>Tokens in</th>
+                <th style={{ padding: '4px 6px' }}>Tokens out</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Costo' : 'Cost'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(aiUsage.byModel).sort((a, b) => aiUsage.byModel[b].costUsd - aiUsage.byModel[a].costUsd).map((k) => {
+                const row = aiUsage.byModel[k];
+                return (
+                  <tr key={k} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                    <td style={{ padding: '4px 6px' }}>{k}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.queries)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.inputTokens)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.outputTokens)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtUsd(row.costUsd)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Costo por día (últimos 14 días)' : 'Cost by day (last 14 days)'}</h4>
+        {!aiUsage || Object.keys(aiUsage.byDay).length === 0 ? (
+          <p className="setup-empty italic">{es ? 'Todavía no hay costos registrados.' : 'No costs logged yet.'}</p>
+        ) : (
+          <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', marginBottom: 20 }}>
+            <thead>
+              <tr style={{ opacity: .6, textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Fecha' : 'Date'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Consultas' : 'Queries'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Costo' : 'Cost'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(aiUsage.byDay).sort((a, b) => (a < b ? 1 : -1)).slice(0, 14).map((d) => {
+                const row = aiUsage.byDay[d];
+                return (
+                  <tr key={d} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                    <td style={{ padding: '4px 6px' }}>{d}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.queries)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtUsd(row.costUsd)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Costo por mes' : 'Cost by month'}</h4>
+        {!aiUsage || Object.keys(aiUsage.byMonth).length === 0 ? (
+          <p className="setup-empty italic">{es ? 'Todavía no hay costos registrados.' : 'No costs logged yet.'}</p>
+        ) : (
+          <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', marginBottom: 20 }}>
+            <thead>
+              <tr style={{ opacity: .6, textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Mes' : 'Month'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Consultas' : 'Queries'}</th>
+                <th style={{ padding: '4px 6px' }}>{es ? 'Costo' : 'Cost'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(aiUsage.byMonth).sort((a, b) => (a < b ? 1 : -1)).map((mth) => {
+                const row = aiUsage.byMonth[mth];
+                return (
+                  <tr key={mth} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                    <td style={{ padding: '4px 6px' }}>{mth}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtInt(row.queries)}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtUsd(row.costUsd)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Últimas consultas (detalle)' : 'Recent queries (detail)'}</h4>
+        {!aiUsage || aiUsage.recent.length === 0 ? (
+          <p className="setup-empty italic">{es ? 'Todavía no hay consultas registradas.' : 'No queries logged yet.'}</p>
+        ) : (
+          <div style={{ maxHeight: 340, overflowY: 'auto', marginBottom: 20 }}>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ opacity: .6, textAlign: 'left' }}>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Fecha/hora' : 'Date/time'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Tipo' : 'Type'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Proveedor / modelo' : 'Provider / model'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Tokens in → out' : 'Tokens in → out'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Caracteres' : 'Characters'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Costo' : 'Cost'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiUsage.recent.map((e) => (
+                  <tr key={e.id} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                    <td style={{ padding: '4px 6px' }}>{new Date(e.ts).toLocaleString(es ? 'es-CL' : 'en-US')}</td>
+                    <td style={{ padding: '4px 6px' }}>{(AI_USAGE_KIND_LABELS[e.kind] && AI_USAGE_KIND_LABELS[e.kind][es ? 'es' : 'en']) || e.kind}</td>
+                    <td style={{ padding: '4px 6px' }}>{(AI_USAGE_PROVIDER_LABELS[e.provider] || e.provider)} / {e.model}</td>
+                    <td style={{ padding: '4px 6px' }}>{e.characters ? '—' : `${fmtInt(e.inputTokens)} → ${fmtInt(e.outputTokens)}`}</td>
+                    <td style={{ padding: '4px 6px' }}>{e.characters ? fmtInt(e.characters) : '—'}</td>
+                    <td style={{ padding: '4px 6px' }}>{fmtUsd(e.costUsd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Tarifas por proveedor (USD)' : 'Provider rates (USD)'}</h4>
+        <p className="setup-hint italic" style={{ marginBottom: 10 }}>
+          {es
+            ? 'Precios por millón de tokens (input/output), tomados de la tarifa publicada por cada proveedor. Editalos acá si cambian -- se usan para calcular el costo de las consultas nuevas (las ya registradas no se recalculan).'
+            : "Prices per million tokens (input/output), taken from each provider's published rate. Edit here if they change -- used to calculate the cost of new queries (already-logged ones are not recalculated)."}
+        </p>
+        {!aiPricingDraft ? (
+          <p className="setup-empty italic">{es ? 'Cargando…' : 'Loading…'}</p>
+        ) : (
+          <>
+            <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', marginBottom: 10 }}>
+              <thead>
+                <tr style={{ opacity: .6, textAlign: 'left' }}>
+                  <th style={{ padding: '4px 6px' }}>{es ? 'Modelo' : 'Model'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? '$ / 1M tokens (in)' : '$ / 1M tokens (in)'}</th>
+                  <th style={{ padding: '4px 6px' }}>{es ? '$ / 1M tokens (out)' : '$ / 1M tokens (out)'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {['anthropic', 'openai', 'glm', 'gemini'].map((prov) => (
+                  Object.keys(aiPricingDraft[prov] || {}).map((mdl) => (
+                    <tr key={prov + '/' + mdl} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                      <td style={{ padding: '4px 6px' }}>{AI_USAGE_PROVIDER_LABELS[prov]} — {mdl}</td>
+                      <td style={{ padding: '4px 6px' }}>
+                        <input type="number" step="0.01" min="0" style={{ width: 90 }}
+                          value={aiPricingDraft[prov][mdl].in}
+                          onChange={(e) => setAiPricingDraft((prev) => ({ ...prev, [prov]: { ...prev[prov], [mdl]: { ...prev[prov][mdl], in: Number(e.target.value) } } }))} />
+                      </td>
+                      <td style={{ padding: '4px 6px' }}>
+                        <input type="number" step="0.01" min="0" style={{ width: 90 }}
+                          value={aiPricingDraft[prov][mdl].out}
+                          onChange={(e) => setAiPricingDraft((prev) => ({ ...prev, [prov]: { ...prev[prov], [mdl]: { ...prev[prov][mdl], out: Number(e.target.value) } } }))} />
+                      </td>
+                    </tr>
+                  ))
+                ))}
+                {aiPricingDraft.elevenlabs && (
+                  <tr style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                    <td style={{ padding: '4px 6px' }}>ElevenLabs — {es ? '$ / 1000 caracteres' : '$ / 1000 characters'}</td>
+                    <td style={{ padding: '4px 6px' }} colSpan={2}>
+                      <input type="number" step="0.001" min="0" style={{ width: 90 }}
+                        value={Number((aiPricingDraft.elevenlabs.perCharUsd * 1000).toFixed(4))}
+                        onChange={(e) => setAiPricingDraft((prev) => ({ ...prev, elevenlabs: { perCharUsd: Number(e.target.value) / 1000 } }))} />
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <button className="btn btn-ghost" onClick={saveAiPricing} disabled={aiPricingSaving}>
+              {aiPricingSaving ? (es ? 'Guardando…' : 'Saving…') : aiPricingSaved ? (es ? '✓ Guardado' : '✓ Saved') : (es ? 'Guardar tarifas' : 'Save rates')}
+            </button>
+          </>
+        )}
       </SetupSection>
 
       {/* ---------- Tipo de respuesta ---------- */}

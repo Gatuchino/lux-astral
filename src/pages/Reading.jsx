@@ -1634,7 +1634,7 @@ ${RT.instr_en}
 ${angleLine_en}${iconInstr}`;
 
     return startJob(
-      { prompts: [prompt], maxTokensList: [RT.maxTokens], model, provider, ticketId, isFollowUp: false },
+      { prompts: [prompt], maxTokensList: [RT.maxTokens], model, provider, ticketId, isFollowUp: false, readingType: responseType },
       'llm request failed'
     );
   }
@@ -1701,7 +1701,7 @@ ${angleLine_en}${iconInstr}`;
 
   const maxTokensList = prompts.map(() => perGroupMaxTokens);
   return startJob(
-    { prompts, maxTokensList, model, provider, ticketId, isFollowUp: false },
+    { prompts, maxTokensList, model, provider, ticketId, isFollowUp: false, readingType: responseType },
     'llm request failed'
   );
 }

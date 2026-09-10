@@ -78,7 +78,7 @@ async function handler(req: Request, context: any) {
   }
 
   // ---- Modo "start" ----
-  const { prompts, maxTokensList, model, provider, ticketId, isFollowUp } = payload || {};
+  const { prompts, maxTokensList, model, provider, ticketId, isFollowUp, readingType } = payload || {};
   if (!Array.isArray(prompts) || prompts.length === 0 || !prompts.every((p: any) => typeof p === "string" && p)) {
     return new Response(JSON.stringify({ error: 'Falta "prompts" (array) en el body.' }), { status: 400 });
   }
@@ -97,7 +97,7 @@ async function handler(req: Request, context: any) {
     await fetch(bgUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider }),
+      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp }),
     });
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {
