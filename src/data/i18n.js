@@ -327,6 +327,7 @@ window.I18N = {
     auth_gate_intro: "Creá tu cuenta o iniciá sesión para continuar. Así tu plan y tu historial de lecturas quedan protegidos, y nadie más puede acceder a ellos escribiendo tu email.",
     auth_verify_h: "Revisá tu email",
     auth_verify_body: "Te mandamos un link de confirmación a {email}. Hacé clic ahí para activar tu cuenta y empezar a usar Lux Astral.",
+    auth_verify_email_failed: "No pudimos enviar el email de confirmación en este momento. Probá de nuevo en unos minutos, o escribinos a comentarios@luxastral.com si el problema sigue.",
 
     // Misc
     back: "Volver",
@@ -854,6 +855,7 @@ window.I18N = {
     auth_gate_intro: "Create an account or sign in to continue. This keeps your plan and reading history protected, so no one else can access them just by typing your email.",
     auth_verify_h: "Check your email",
     auth_verify_body: "We sent a confirmation link to {email}. Click it to activate your account and start using Lux Astral.",
+    auth_verify_email_failed: "We couldn't send the confirmation email right now. Please try again in a few minutes, or write to comentarios@luxastral.com if this keeps happening.",
 
     back: "Back",
     close: "Close",

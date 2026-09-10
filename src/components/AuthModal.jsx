@@ -25,6 +25,7 @@ function AuthModal({ lang, onClose, onAuth, dismissible }) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [pendingEmail, setPendingEmail] = React.useState(''); // no vacío = "revisá tu email"
+  const [emailSendFailed, setEmailSendFailed] = React.useState(false); // 2026-09-10: el signup salió bien (cuenta pendiente creada) pero Resend no pudo mandar el mail -- avisamos en vez de mentir "revisá tu email"
   const isSignup = mode === 'signup';
 
   const switchMode = (next) => {
@@ -54,6 +55,8 @@ function AuthModal({ lang, onClose, onAuth, dismissible }) {
       .then((res) => {
         if (isSignup && res && res.pendingVerification) {
           setPendingEmail(em);
+          setEmailSendFailed(!res.emailSent);
+          if (!res.emailSent) console.error('[Arcana] no se pudo mandar el email de verificación:', res.emailError);
           return;
         }
         const profile = window.saveArcanaSession(res);
@@ -76,6 +79,11 @@ function AuthModal({ lang, onClose, onAuth, dismissible }) {
           <p style={{ color: 'var(--ink-soft)', lineHeight: 1.6 }}>
             {t.auth_verify_body.replace('{email}', pendingEmail)}
           </p>
+          {emailSendFailed && (
+            <p style={{ color: '#c0392b', fontSize: 14, marginTop: 10 }}>
+              {t.auth_verify_email_failed}
+            </p>
+          )}
           <button
             type="button"
             className="btn btn-ghost"
