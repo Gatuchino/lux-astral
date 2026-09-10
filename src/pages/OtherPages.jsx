@@ -1843,7 +1843,10 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
             </div>
             {visibleMain.length === 0 ? (
               <p className="italic" style={{ color: 'var(--ink-soft)', padding: '12px 0' }}>{t.profile_history_no_results}</p>
-            ) : (
+            ) : term ? (
+              // Con una busqueda activa el orden es por relevancia, no por
+              // fecha -- agrupar por tiempo aqui mezclaria el criterio y
+              // confundiria mas de lo que ordena. Se deja la lista plana.
               <div className="profile-history-list">
                 {visibleMain.map((r) => (
                   <HistoryRow
@@ -1861,6 +1864,29 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
                   />
                 ))}
               </div>
+            ) : (
+              groupReadingsByTime(visibleMain, es).map((group) => (
+                <div key={group.label} className="profile-history-group">
+                  <div className="profile-history-group-h">{group.label}</div>
+                  <div className="profile-history-list">
+                    {group.items.map((r) => (
+                      <HistoryRow
+                        key={r.id}
+                        r={r}
+                        lang={lang}
+                        t={t}
+                        es={es}
+                        isCofreEligible={isCofreEligible}
+                        onDelete={onDeleteReading}
+                        onArchive={onArchive}
+                        onView={setViewReading}
+                        onAskAgain={onAskAgain}
+                        onToggleSpecial={onToggleSpecial}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))
             )}
             {archivedReadings.length > 0 && (
               <div className="profile-drawer">
@@ -2278,6 +2304,11 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
         }
         .profile-empty p { font-size: 22px; color: var(--ink-soft); margin-bottom: 24px; }
         .profile-history-list { display: flex; flex-direction: column; gap: 12px; }
+        .profile-history-group + .profile-history-group { margin-top: 30px; }
+        .profile-history-group-h {
+          font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+          color: var(--gold); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px dashed var(--line);
+        }
         .history-row {
           display: flex; gap: 20px; align-items: center;
           background: rgba(26, 20, 56, 0.4);
@@ -2374,6 +2405,42 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
       `}</style>
     </div>
   );
+}
+
+// Agrupa un listado de lecturas (ya ordenado por fecha descendente) en
+// baldes de tiempo -- Hoy / Ayer / Esta semana / Este mes / <Mes Año> --
+// para que el historial del perfil se vea ordenado de un vistazo en vez
+// de una lista plana. Solo tiene sentido cuando el orden es por fecha
+// (no durante una busqueda por relevancia, ver uso en profile-history).
+const HISTORY_MONTHS_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const HISTORY_MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function historyBucketLabel(date, now, es) {
+  const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const diffDays = Math.round((startOfDay(now) - startOfDay(date)) / 86400000);
+  if (diffDays === 0) return es ? 'Hoy' : 'Today';
+  if (diffDays === 1) return es ? 'Ayer' : 'Yesterday';
+  if (diffDays >= 2 && diffDays <= 6) return es ? 'Esta semana' : 'This week';
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) {
+    return es ? 'Este mes' : 'This month';
+  }
+  const monthName = es ? HISTORY_MONTHS_ES[date.getMonth()] : HISTORY_MONTHS_EN[date.getMonth()];
+  const capitalized = es ? monthName.charAt(0).toUpperCase() + monthName.slice(1) : monthName;
+  return `${capitalized} ${date.getFullYear()}`;
+}
+function groupReadingsByTime(list, es) {
+  const now = new Date();
+  const groups = [];
+  const byLabel = new Map();
+  list.forEach((r) => {
+    const label = historyBucketLabel(new Date(r.date), now, es);
+    if (!byLabel.has(label)) {
+      const g = { label, items: [] };
+      byLabel.set(label, g);
+      groups.push(g);
+    }
+    byLabel.get(label).items.push(r);
+  });
+  return groups;
 }
 
 function HistoryRow({ r, lang, t, es, isCofreEligible, onDelete, onArchive, onView, onAskAgain, onToggleSpecial, cofreMode }) {
