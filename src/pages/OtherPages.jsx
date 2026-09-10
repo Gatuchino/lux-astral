@@ -2992,7 +2992,7 @@ function PricingPage({ lang, setRoute, profile }) {
   // Suscripción real con PayPal (cobro recurrente) — identificada por
   // email, sin cuentas/login. Ver acciones "subscription-plans" /
   // "confirm-subscription" en local-server.js / booking.mts.
-  const [plansConfig, setPlansConfig] = React.useState({ plans: null, paypalClientId: '' });
+  const [plansConfig, setPlansConfig] = React.useState({ plans: null, paypalClientId: '', planPrices: null });
   const [subOpen, setSubOpen] = React.useState(null); // { key: 'luna'|'oraculo', billing } mientras el modal está abierto
   // 2026-09-09 (a pedido de Christian): el email de la suscripción ya no
   // es un campo de texto libre -- se toma SIEMPRE de la cuenta
@@ -3083,11 +3083,25 @@ function PricingPage({ lang, setRoute, profile }) {
   };
   const closeSubscribe = () => { setSubOpen(null); subRenderedForRef.current = null; };
 
+  // 2026-09-10 (a pedido de Christian): estos valores ya no son la fuente
+  // de verdad -- son solo el respaldo mientras carga plansConfig.planPrices
+  // (que viene de store.settings.planPrices, editable desde Setup > Planes).
+  // Si el Power User cambia un precio ahi, esta pantalla lo refleja solo.
+  const DEFAULT_PLAN_PRICES = {
+    luna_month: 6, luna_year: 60,
+    estrella_month: 9, estrella_year: 90,
+    oraculo_month: 24, oraculo_year: 240,
+  };
+  const planPrice = (key) => {
+    const raw = plansConfig.planPrices && plansConfig.planPrices[key];
+    const n = raw != null ? Number(raw) : DEFAULT_PLAN_PRICES[key];
+    return Number.isFinite(n) ? n : DEFAULT_PLAN_PRICES[key];
+  };
   const prices = {
-    vela:     { month: 0,  year: 0   },
-    luna:     { month: 6,  year: 60  },  // 60/12 = 5, save 2 months
-    estrella: { month: 9,  year: 90  },  // 90/12 = 7.5, save 2 months
-    oraculo:  { month: 24, year: 240 },  // 240/12 = 20, save 2 months
+    vela:     { month: 0, year: 0 },
+    luna:     { month: planPrice('luna_month'), year: planPrice('luna_year') },
+    estrella: { month: planPrice('estrella_month'), year: planPrice('estrella_year') },
+    oraculo:  { month: planPrice('oraculo_month'), year: planPrice('oraculo_year') },
   };
 
   const priceLabel = (planKey) => {

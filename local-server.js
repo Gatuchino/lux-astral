@@ -987,14 +987,32 @@ async function paypalFetch(pathSuffix, { method = 'GET', json: jsonBody } = {}) 
 // estado en vivo contra PayPal cada vez que importa (al pagar una sesión
 // con descuento, o cuando el panel de Setup pide la lista).
 // =====================================================================
-const SUBSCRIPTION_PLAN_DEFS = [
-  { key: 'luna_month', name: 'Lux Astral — Luna (mensual)', value: '6.00', unit: 'MONTH' },
-  { key: 'luna_year', name: 'Lux Astral — Luna (anual)', value: '60.00', unit: 'YEAR' },
-  { key: 'estrella_month', name: 'Lux Astral — Estrella (mensual)', value: '9.00', unit: 'MONTH' },
-  { key: 'estrella_year', name: 'Lux Astral — Estrella (anual)', value: '90.00', unit: 'YEAR' },
-  { key: 'oraculo_month', name: 'Lux Astral — Oráculo (mensual)', value: '24.00', unit: 'MONTH' },
-  { key: 'oraculo_year', name: 'Lux Astral — Oráculo (anual)', value: '240.00', unit: 'YEAR' },
+// 2026-09-10 (a pedido de Christian): los precios dejaron de estar fijos
+// en el codigo -- ahora viven en store.settings.planPrices (editable
+// desde Setup > Planes) y estos son solo los valores por defecto, para
+// cuando todavia no se guardo nada. subscriptionPlanDefs(store) arma la
+// lista completa (key/name/unit fijos + value actual) que antes era
+// SUBSCRIPTION_PLAN_DEFS.
+const SUBSCRIPTION_PLAN_KEYS = [
+  { key: 'luna_month', name: 'Lux Astral — Luna (mensual)', unit: 'MONTH', defaultValue: '6.00' },
+  { key: 'luna_year', name: 'Lux Astral — Luna (anual)', unit: 'YEAR', defaultValue: '60.00' },
+  { key: 'estrella_month', name: 'Lux Astral — Estrella (mensual)', unit: 'MONTH', defaultValue: '9.00' },
+  { key: 'estrella_year', name: 'Lux Astral — Estrella (anual)', unit: 'YEAR', defaultValue: '90.00' },
+  { key: 'oraculo_month', name: 'Lux Astral — Oráculo (mensual)', unit: 'MONTH', defaultValue: '24.00' },
+  { key: 'oraculo_year', name: 'Lux Astral — Oráculo (anual)', unit: 'YEAR', defaultValue: '240.00' },
 ];
+
+function getPlanPrices(store) {
+  const prices = {};
+  SUBSCRIPTION_PLAN_KEYS.forEach((def) => { prices[def.key] = def.defaultValue; });
+  Object.assign(prices, store.settings.planPrices || {});
+  return prices;
+}
+
+function subscriptionPlanDefs(store) {
+  const prices = getPlanPrices(store);
+  return SUBSCRIPTION_PLAN_KEYS.map((def) => ({ ...def, value: prices[def.key] }));
+}
 
 // Idempotente: si ya guardamos los IDs de los planes en settings, no vuelve
 // a crear nada en PayPal (crear el mismo plan dos veces generaría duplicados
@@ -1014,7 +1032,7 @@ async function paypalEnsureSubscriptionPlans(store) {
     store.settings.paypalProductId = productId;
   }
   const planIds = { ...(store.settings.paypalPlanIds || {}) };
-  for (const def of SUBSCRIPTION_PLAN_DEFS) {
+  for (const def of subscriptionPlanDefs(store)) {
     if (planIds[def.key]) continue; // ya existe, no lo recreamos
     const plan = await paypalFetch('v1/billing/plans', {
       method: 'POST',
@@ -1044,7 +1062,7 @@ async function paypalEnsureSubscriptionPlans(store) {
 // primera vez que hace falta (idempotente, igual que los planes
 // normales) — no requiere apretar nada en Setup.
 async function paypalEnsureRetentionPlan(store, planKey, billing) {
-  const def = SUBSCRIPTION_PLAN_DEFS.find((d) => d.key === `${planKey}_${billing}`);
+  const def = subscriptionPlanDefs(store).find((d) => d.key === `${planKey}_${billing}`);
   if (!def) throw new Error(`Plan desconocido: ${planKey}_${billing}`);
   const retainKey = `${planKey}_${billing}_retain`;
   const ids = { ...(store.settings.paypalRetentionPlanIds || {}) };
@@ -1614,7 +1632,11 @@ async function handleBooking(req, res, url) {
         return sendJson(res, 200, buildExperienciaLecturaSummary(store));
       }
       if (action === 'subscription-plans') {
-        return sendJson(res, 200, { plans: store.settings.paypalPlanIds || null, paypalClientId: process.env.PAYPAL_CLIENT_ID || '' });
+        return sendJson(res, 200, {
+          plans: store.settings.paypalPlanIds || null,
+          paypalClientId: process.env.PAYPAL_CLIENT_ID || '',
+          planPrices: getPlanPrices(store),
+        });
       }
       if (action === 'subscriber-status') {
         const email = requireUserAuth(store, { sessionToken: url.searchParams.get('sessionToken') || '' });
@@ -1887,6 +1909,100 @@ async function handleBooking(req, res, url) {
         console.error('[booking:provision-plans]', e.status || '', e.detail || e.message);
         return sendJson(res, 502, { error: 'No se pudieron crear los planes en PayPal.', detail: e.detail });
       }
+    }
+
+    if (action === 'update-plan-price') {
+      // 2026-09-10 (a pedido de Christian): el Power User puede cambiar el
+      // precio de un plan desde Setup. Si ese plan YA estaba provisionado
+      // en PayPal (tiene suscriptoras que ya vienen pagando), el precio de
+      // un Billing Plan no se puede editar in-place ahi -- en vez de eso
+      // desactivamos el plan viejo (deja de aceptar ALTAS nuevas, pero NO
+      // toca ni cancela a quien ya esta suscripta con el) y creamos uno
+      // nuevo con el precio nuevo para las altas de aca en adelante. O sea:
+      // las socias actuales siguen pagando lo mismo de siempre; el precio
+      // nuevo aplica solo a quien se suscriba despues del cambio.
+      if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+      const { planKey, billing, value } = payload;
+      const validPlanKeys = ['luna', 'estrella', 'oraculo'];
+      const validBilling = ['month', 'year'];
+      if (!validPlanKeys.includes(planKey) || !validBilling.includes(billing)) {
+        return sendJson(res, 400, { error: 'Plan o ciclo de facturación inválido.' });
+      }
+      const numValue = Number(value);
+      if (!Number.isFinite(numValue) || numValue <= 0 || numValue >= 10000) {
+        return sendJson(res, 400, { error: 'El precio tiene que ser un número mayor a 0.' });
+      }
+      const defKey = `${planKey}_${billing}`;
+      const formatted = numValue.toFixed(2);
+      const planPrices = getPlanPrices(store);
+      planPrices[defKey] = formatted;
+      store.settings.planPrices = planPrices;
+
+      const existingPlanId = store.settings.paypalPlanIds && store.settings.paypalPlanIds[defKey];
+      let newPlanId = null;
+      if (existingPlanId) {
+        let productId = store.settings.paypalProductId;
+        if (!productId) {
+          try {
+            const product = await paypalFetch('v1/catalogs/products', {
+              method: 'POST',
+              json: { name: 'Lux Astral — Membresía', type: 'SERVICE', category: 'SOFTWARE' },
+            });
+            productId = product.id;
+            store.settings.paypalProductId = productId;
+          } catch (e) {
+            if (e.isConfig) return sendJson(res, 500, { error: e.message });
+            return sendJson(res, 502, { error: 'No se pudo preparar el producto en PayPal.', detail: e.detail });
+          }
+        }
+        try {
+          await paypalFetch(`v1/billing/plans/${existingPlanId}/deactivate`, { method: 'POST' });
+        } catch (e) {
+          if (e.isConfig) return sendJson(res, 500, { error: e.message });
+          console.error('[update-plan-price] no se pudo desactivar el plan anterior en PayPal', existingPlanId, e.status || '', e.detail || e.message);
+          return sendJson(res, 502, { error: 'No se pudo desactivar el plan anterior en PayPal.', detail: e.detail });
+        }
+        const def = subscriptionPlanDefs(store).find((d) => d.key === defKey);
+        try {
+          const plan = await paypalFetch('v1/billing/plans', {
+            method: 'POST',
+            json: {
+              product_id: productId,
+              name: def.name,
+              billing_cycles: [{
+                frequency: { interval_unit: def.unit, interval_count: 1 },
+                tenure_type: 'REGULAR',
+                sequence: 1,
+                total_cycles: 0,
+                pricing_scheme: { fixed_price: { value: formatted, currency_code: 'USD' } },
+              }],
+              payment_preferences: { auto_bill_outstanding: true, setup_fee_failure_action: 'CONTINUE', payment_failure_threshold: 2 },
+            },
+          });
+          newPlanId = plan.id;
+        } catch (e) {
+          if (e.isConfig) return sendJson(res, 500, { error: e.message });
+          console.error('[update-plan-price] no se pudo crear el plan nuevo en PayPal', e.status || '', e.detail || e.message);
+          return sendJson(res, 502, { error: 'No se pudo crear el plan nuevo en PayPal.', detail: e.detail });
+        }
+        store.settings.paypalPlanIds = { ...(store.settings.paypalPlanIds || {}), [defKey]: newPlanId };
+        // La oferta de retencion (25% off al cancelar) quedo calculada
+        // sobre el precio viejo -- se borra para que se regenere sola,
+        // ya con el precio nuevo, la proxima vez que alguien cancele.
+        const retainKey = `${defKey}_retain`;
+        if (store.settings.paypalRetentionPlanIds && store.settings.paypalRetentionPlanIds[retainKey]) {
+          const retentionIds = { ...store.settings.paypalRetentionPlanIds };
+          delete retentionIds[retainKey];
+          store.settings.paypalRetentionPlanIds = retentionIds;
+        }
+      }
+      saveBookingStore(store);
+      return sendJson(res, 200, {
+        ok: true,
+        planPrices: store.settings.planPrices,
+        plans: store.settings.paypalPlanIds || null,
+        replacedPlan: !!newPlanId,
+      });
     }
 
     if (action === 'confirm-subscription') {

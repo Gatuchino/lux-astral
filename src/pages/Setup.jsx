@@ -78,6 +78,7 @@ const SETUP_SEARCH_INDEX = [
   { id: 'sessions', categoryId: 'video', title_es: 'Sesiones próximas', title_en: 'Upcoming sessions' },
   { id: 'videoprice', categoryId: 'video', title_es: 'Precio y comisión de sesiones de video', title_en: 'Video session price and commission' },
   { id: 'subplans', categoryId: 'planes', title_es: 'Planes de suscripción (PayPal)', title_en: 'Subscription plans (PayPal)' },
+  { id: 'planprices', categoryId: 'planes', title_es: 'Precios de los planes', title_en: 'Plan prices' },
   { id: 'memberships', categoryId: 'planes', title_es: 'Membresías', title_en: 'Memberships' },
   { id: 'newsletter', categoryId: 'comunicacion', title_es: 'Newsletter y novedades', title_en: 'Newsletter and updates' },
   { id: 'merch', categoryId: 'tienda', title_es: 'Merchandising', title_en: 'Merchandise' },
@@ -492,6 +493,14 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
   const [subPlans, setSubPlans] = React.useState(null); // {luna_month, luna_year, oraculo_month, oraculo_year} | null
   const [subPlansLoading, setSubPlansLoading] = React.useState(false);
   const [subPlansError, setSubPlansError] = React.useState('');
+  // 2026-09-10 (a pedido de Christian): precios de los planes, editables
+  // desde acá en vez de fijos en el código -- ver update-plan-price en
+  // booking.mts/local-server.js. planPrices llega del mismo fetch que ya
+  // traía subPlans (acción "subscription-plans").
+  const [planPrices, setPlanPrices] = React.useState(null); // {luna_month, luna_year, ...} | null
+  const [priceDrafts, setPriceDrafts] = React.useState({});
+  const [priceSaving, setPriceSaving] = React.useState({});
+  const [priceResult, setPriceResult] = React.useState({}); // defKey -> 'ok' | 'replaced' | mensaje de error
   const [trLoading, setTrLoading] = React.useState(true);
   const [trError, setTrError] = React.useState(false);
   const [settingsSaved, setSettingsSaved] = React.useState(false);
@@ -611,8 +620,38 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       .finally(() => setSubPlansLoading(false));
   };
   React.useEffect(() => {
-    window.arcanaSubscriptionPlans().then((res) => { if (res.plans) setSubPlans(res.plans); }).catch(() => {});
+    window.arcanaSubscriptionPlans().then((res) => {
+      if (res.plans) setSubPlans(res.plans);
+      if (res.planPrices) setPlanPrices(res.planPrices);
+    }).catch(() => {});
   }, []);
+
+  const PLAN_PRICE_ROWS = [
+    { planKey: 'luna', billing: 'month', label_es: 'Luna — mensual', label_en: 'Luna — monthly' },
+    { planKey: 'luna', billing: 'year', label_es: 'Luna — anual', label_en: 'Luna — yearly' },
+    { planKey: 'estrella', billing: 'month', label_es: 'Estrella — mensual', label_en: 'Estrella — monthly' },
+    { planKey: 'estrella', billing: 'year', label_es: 'Estrella — anual', label_en: 'Estrella — yearly' },
+    { planKey: 'oraculo', billing: 'month', label_es: 'Oráculo — mensual', label_en: 'Oráculo — monthly' },
+    { planKey: 'oraculo', billing: 'year', label_es: 'Oráculo — anual', label_en: 'Oráculo — yearly' },
+  ];
+  const savePlanPrice = (planKey, billing) => {
+    const defKey = `${planKey}_${billing}`;
+    const draft = priceDrafts[defKey];
+    const value = draft != null && draft !== '' ? draft : (planPrices ? planPrices[defKey] : '');
+    if (!value || Number(value) <= 0) return;
+    setPriceSaving((s) => ({ ...s, [defKey]: true }));
+    setPriceResult((r) => ({ ...r, [defKey]: null }));
+    window.arcanaUpdatePlanPrice(planKey, billing, value)
+      .then((res) => {
+        setPlanPrices(res.planPrices);
+        if (res.plans) setSubPlans(res.plans);
+        setPriceDrafts((d) => { const next = { ...d }; delete next[defKey]; return next; });
+        setPriceResult((r) => ({ ...r, [defKey]: res.replacedPlan ? 'replaced' : 'ok' }));
+        setTimeout(() => setPriceResult((r) => ({ ...r, [defKey]: null })), 4000);
+      })
+      .catch((e) => setPriceResult((r) => ({ ...r, [defKey]: e.message })))
+      .finally(() => setPriceSaving((s) => ({ ...s, [defKey]: false })));
+  };
 
   // ---------- Membresías (ad-honores + newsletter) ----------
   const [memberships, setMemberships] = React.useState([]);
@@ -1623,8 +1662,8 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       <SetupSection
         title={es ? 'Planes de suscripción (PayPal)' : 'Subscription plans (PayPal)'}
         desc={es
-          ? 'Crea (una sola vez) el Producto y los 6 Planes de cobro recurrente en PayPal (Luna, Estrella y Oráculo, mensual y anual) que se muestran en la página de Precios. Los precios salen del código de esa página — para cambiarlos hay que avisarme.'
-          : "Creates (once) the recurring-billing Product and 6 Plans in PayPal (Luna, Estrella and Oráculo, monthly and yearly) shown on the Pricing page. Prices come from that page's code — ask me to change them."}
+          ? 'Crea (una sola vez) el Producto y los 6 Planes de cobro recurrente en PayPal (Luna, Estrella y Oráculo, mensual y anual) que se muestran en la página de Precios. Para cambiar los precios, usá la sección "Precios de los planes" de más abajo.'
+          : 'Creates (once) the recurring-billing Product and 6 Plans in PayPal (Luna, Estrella and Oráculo, monthly and yearly) shown on the Pricing page. To change prices, use the "Plan prices" section below.'}
       >
         {(() => {
           const ALL_PLAN_KEYS = ['luna_month', 'luna_year', 'estrella_month', 'estrella_year', 'oraculo_month', 'oraculo_year'];
@@ -1652,6 +1691,73 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           );
         })()}
         {subPlansError && <div className="italic" style={{ fontSize: 12, color: '#e08080', marginTop: 8 }}>{subPlansError}</div>}
+      </SetupSection>
+      </div>
+      )}
+
+      {activeCategory === 'planes' && (
+      <div id="setup-sec-planprices">
+      {/* ---------- Precios de los planes (editable desde acá) ---------- */}
+      <SetupSection
+        title={es ? 'Precios de los planes' : 'Plan prices'}
+        desc={es
+          ? 'Cambiá acá el precio mensual y anual de cada plan — se refleja al toque en la página de Precios. Importante: si el plan ya tenía socias suscriptas, ellas NO cambian de precio (siguen pagando lo que ya venían pagando) — el precio nuevo aplica solo a quien se suscriba de ahí en adelante. Esto es así porque PayPal no permite editar el precio de un plan de cobro recurrente ya en uso; en su lugar, acá atrás se crea un plan nuevo con el precio nuevo y se retira el viejo de circulación (sin tocar a quien ya lo tiene).'
+          : "Change each plan's monthly and yearly price here — it updates on the Pricing page right away. Important: if the plan already had subscribers, they do NOT change price (they keep paying what they already were) — the new price only applies to whoever subscribes from now on. This is because PayPal doesn't allow editing the price of a recurring plan already in use; behind the scenes this creates a new plan with the new price and retires the old one (without touching anyone already on it)."}
+      >
+        <div className="setup-planprice-grid">
+          {PLAN_PRICE_ROWS.map((row) => {
+            const defKey = `${row.planKey}_${row.billing}`;
+            const currentValue = planPrices ? planPrices[defKey] : null;
+            const draft = priceDrafts[defKey];
+            const saving = !!priceSaving[defKey];
+            const result = priceResult[defKey];
+            const isProvisioned = !!(subPlans && subPlans[defKey]);
+            return (
+              <div key={defKey} className="setup-planprice-row">
+                <div className="setup-planprice-label">
+                  {es ? row.label_es : row.label_en}
+                  {!isProvisioned && (
+                    <span className="setup-planprice-hint">
+                      {es ? ' (sin provisionar aún en PayPal)' : ' (not yet provisioned in PayPal)'}
+                    </span>
+                  )}
+                </div>
+                <div className="setup-planprice-input">
+                  <span>USD $</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={draft != null ? draft : (currentValue != null ? currentValue : '')}
+                    onChange={(e) => setPriceDrafts((d) => ({ ...d, [defKey]: e.target.value }))}
+                    disabled={saving}
+                  />
+                </div>
+                <button
+                  className="btn btn-ghost setup-planprice-save"
+                  onClick={() => savePlanPrice(row.planKey, row.billing)}
+                  disabled={saving || planPrices == null}
+                >
+                  {saving ? (es ? 'Guardando…' : 'Saving…') : (es ? 'Guardar' : 'Save')}
+                </button>
+                {result === 'ok' && <span className="setup-planprice-result is-ok">✓ {es ? 'Guardado' : 'Saved'}</span>}
+                {result === 'replaced' && (
+                  <span className="setup-planprice-result is-ok">
+                    ✓ {es ? 'Guardado — plan nuevo creado en PayPal' : 'Saved — new plan created in PayPal'}
+                  </span>
+                )}
+                {result && result !== 'ok' && result !== 'replaced' && (
+                  <span className="setup-planprice-result is-error">{result}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {planPrices == null && (
+          <p className="italic" style={{ fontSize: 12.5, opacity: .7, marginTop: 10 }}>
+            {es ? 'Cargando precios actuales…' : 'Loading current prices…'}
+          </p>
+        )}
       </SetupSection>
       </div>
       )}
@@ -2471,7 +2577,6 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         <ul className="setup-soon-list">
           <li>{es ? 'Registro de actividad — quién cambió qué y cuándo.' : 'Activity log — who changed what and when.'}</li>
           <li>{es ? 'Notificaciones por correo (nuevas lecturas, pagos, códigos usados).' : 'Email notifications (new readings, payments, codes used).'}</li>
-          <li>{es ? 'Edición de planes y precios desde acá, sin tocar código.' : 'Edit plans and pricing here, without touching code.'}</li>
           <li>{es ? 'Moderación de mensajes del chat en vivo.' : 'Moderation of live chat messages.'}</li>
         </ul>
       </SetupSection>
@@ -2535,6 +2640,26 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         .setup-report-label { font-size: 13px; color: var(--ink-soft); }
         .setup-report-btn { padding: 7px 14px; font-size: 12.5px; }
         .setup-report-hint { font-size: 12.5px; color: var(--ink-mute); }
+        .setup-planprice-grid { display: flex; flex-direction: column; gap: 12px; }
+        .setup-planprice-row {
+          display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+          padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02);
+        }
+        .setup-planprice-label { flex: 1 1 200px; font-size: 14px; }
+        .setup-planprice-hint { font-size: 11.5px; color: var(--ink-mute); }
+        .setup-planprice-input {
+          display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.15);
+          border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+        }
+        .setup-planprice-input span { font-size: 12.5px; color: var(--ink-soft); }
+        .setup-planprice-input input {
+          width: 80px; background: transparent; border: none; color: var(--ink); font-family: inherit; font-size: 14px;
+        }
+        .setup-planprice-input input:focus { outline: none; }
+        .setup-planprice-save { padding: 7px 14px; font-size: 12.5px; }
+        .setup-planprice-result { font-size: 12px; }
+        .setup-planprice-result.is-ok { color: #8fd4a0; }
+        .setup-planprice-result.is-error { color: #e08080; }
         .setup-sub { font-size: 18px; color: var(--ink-soft); margin-top: 10px; max-width: 640px; }
         .setup-warning {
           display: flex; gap: 14px; align-items: flex-start;

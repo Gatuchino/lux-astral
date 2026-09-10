@@ -96,8 +96,13 @@ window.arcanaConfirmBooking = (orderId) => arcanaBookingCall('confirm', { orderI
 window.arcanaSubscriptionPlans = async function () {
   const res = await fetch('/.netlify/functions/booking?action=subscription-plans');
   if (!res.ok) throw new Error('No se pudieron cargar los planes.');
-  return res.json(); // { plans: {luna_month, luna_year, oraculo_month, oraculo_year} | null, paypalClientId }
+  return res.json(); // { plans: {luna_month, luna_year, oraculo_month, oraculo_year} | null, paypalClientId, planPrices }
 };
+// Panel de Setup: cambia el precio de un plan (ej. planKey='luna', billing='month').
+// Si el plan ya estaba provisionado en PayPal, el backend desactiva el plan
+// viejo (no toca a quien ya esta suscripta) y crea uno nuevo con el precio
+// nuevo para las altas de aca en adelante.
+window.arcanaUpdatePlanPrice = (planKey, billing, value) => arcanaBookingCall('update-plan-price', { planKey, billing, value });
 window.arcanaConfirmSubscription = (opts) => arcanaBookingCall('confirm-subscription', opts); // { subscriptionId } -> { status, isSubscriber } (el email se deriva de la sesión)
 window.arcanaSubscriberStatus = async function () {
   const res = await fetch('/.netlify/functions/booking?action=subscriber-status&sessionToken=' + encodeURIComponent(arcanaSessionToken()));
