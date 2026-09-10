@@ -713,7 +713,12 @@ async function checkOraculoFreeSlot(store: any, email: string) {
 // =====================================================================
 const HONORARY_PLAN_KEYS = ["luna", "estrella", "oraculo"];
 
-async function resendSend(to: string, subject: string, html: string, opts: { replyTo?: string } = {}) {
+async function resendSend(
+  to: string,
+  subject: string,
+  html: string,
+  opts: { replyTo?: string; attachments?: Array<{ filename: string; content: string; contentType?: string; contentId?: string }> } = {}
+) {
   const key = Netlify.env.get("RESEND_API_KEY");
   if (!key) {
     const err: any = new Error("Falta RESEND_API_KEY (agregala a las variables de entorno del sitio en Netlify para poder mandar emails).");
@@ -723,6 +728,14 @@ async function resendSend(to: string, subject: string, html: string, opts: { rep
   const from = Netlify.env.get("RESEND_FROM") || "Lux Astral <hola@luxastral.com>";
   const body: any = { from, to: [to], subject, html };
   if (opts.replyTo) body.reply_to = opts.replyTo;
+  if (opts.attachments && opts.attachments.length) {
+    body.attachments = opts.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      ...(a.contentType ? { content_type: a.contentType } : {}),
+      ...(a.contentId ? { content_id: a.contentId } : {}),
+    }));
+  }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
@@ -1695,15 +1708,28 @@ export default async (req: Request) => {
 
     if (action === "send-announcement") {
       if (!requireAdmin(store, payload, action)) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
-      const { subject, html: bodyHtml } = payload;
+      // Novedades/productos — texto libre (o HTML subido como .zip, con
+      // imágenes embebidas) que Christian arma en Setup, se manda a quien
+      // se suscribió al boletín (misma lista). "raw": true significa que
+      // bodyHtml ya es un email HTML completo (viene del .zip) y no hay
+      // que envolverlo en el template de novedades.
+      const { subject, html: bodyHtml, images, raw } = payload;
       if (!subject || !bodyHtml) return json(400, { error: "Falta el asunto o el contenido." });
+      const imgs = (Array.isArray(images) ? images : []).slice(0, 20);
+      const totalB64 = imgs.reduce((sum: number, im: any) => sum + (im && im.base64 ? im.base64.length : 0), 0);
+      if (totalB64 > 25 * 1024 * 1024) {
+        return json(400, { error: "Las imágenes del .zip pesan demasiado para mandarlas por email (límite ~18 MB reales, tope de Resend). Achicalas o sacá alguna." });
+      }
+      const attachments = imgs
+        .filter((im: any) => im && im.base64 && im.filename && im.cid)
+        .map((im: any) => ({ filename: String(im.filename).slice(0, 120), content: im.base64, contentType: im.contentType || undefined, contentId: String(im.cid).slice(0, 100) }));
+      const html = raw ? bodyHtml : newsletterEmailHtml(subject, bodyHtml);
       const recipients = store.subscribers.filter((s: any) => s.newsletterOptIn && s.status === "ACTIVE");
-      const html = newsletterEmailHtml(subject, bodyHtml);
       let sent = 0;
       const failed: string[] = [];
       for (const sub of recipients) {
         try {
-          await resendSend(sub.email, subject, html);
+          await resendSend(sub.email, subject, html, { attachments });
           sent++;
         } catch (e) {
           failed.push(sub.email);

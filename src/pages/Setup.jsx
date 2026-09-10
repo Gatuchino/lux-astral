@@ -313,6 +313,16 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
   const [announceForm, setAnnounceForm] = React.useState({ subject: '', body: '' });
   const [announceSending, setAnnounceSending] = React.useState(false);
   const [announceResult, setAnnounceResult] = React.useState(null);
+  // 2026-09-10: 'texto' (parrafos simples) o 'html' (subis un .zip con un
+  // .html + imagenes, se mandan como adjuntos con Content-ID -- ver
+  // parseAnnouncementZip / resendSend).
+  const [announceMode, setAnnounceMode] = React.useState('text');
+  const [announceZipName, setAnnounceZipName] = React.useState('');
+  const [announceZipParsing, setAnnounceZipParsing] = React.useState(false);
+  const [announceZipError, setAnnounceZipError] = React.useState('');
+  const [announceHtml, setAnnounceHtml] = React.useState('');
+  const [announcePreviewHtml, setAnnouncePreviewHtml] = React.useState('');
+  const [announceImages, setAnnounceImages] = React.useState([]);
   const [newSpecialDate, setNewSpecialDate] = React.useState({ date: '', label_es: '', label_en: '' });
   const [showPreview, setShowPreview] = React.useState(false);
 
@@ -355,12 +365,95 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       .catch((e) => setNewsletterResult({ error: e.message }))
       .finally(() => setNewsletterSending(false));
   };
+  // Wrapper local del mismo diseño que arma newsletterEmailHtml() en el
+  // backend (booking.mts / local-server.js) -- SOLO para que la vista
+  // previa del modo "texto" muestre exactamente lo que se va a mandar.
+  // Si cambia uno hay que cambiar el otro.
+  const announcementPreviewWrap = (subject, bodyHtml) => `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;">
+    <p style="color:#b3a8c8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Lux Astral · Boletín diario</p>
+    <h1 style="color:#d4a85a;font-size:22px;margin-top:4px;">${subject}</h1>
+    <div style="font-size:15px;line-height:1.7;">${bodyHtml}</div>
+    <p style="margin-top:28px;font-size:11px;color:#6b6188;">Recibís esto porque activaste el boletín diario en tu perfil de Lux Astral.</p>
+  </div>`;
+  const guessImageContentType = (filename) => {
+    const ext = (filename.split('.').pop() || '').toLowerCase();
+    return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' }[ext] || 'application/octet-stream';
+  };
+  const stripScripts = (html) => html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  // Lee un .zip exportado de un editor de emails (HTML + carpeta de
+  // imágenes), encuentra el .html adentro, y reemplaza cada <img src="...">
+  // que apunte a una imagen del propio zip por "cid:imgN" -- esas imágenes
+  // se mandan como adjuntos con Content-ID (ver resendSend en el backend),
+  // que es la forma correcta y compatible de incrustar imágenes en un
+  // email (a diferencia de pegarlas como data: URI, que varios clientes de
+  // correo como Outlook no muestran bien).
+  const parseAnnouncementZip = (file) => {
+    if (!file) return;
+    setAnnounceZipError('');
+    setAnnounceZipParsing(true);
+    setAnnounceZipName(file.name);
+    window.JSZip.loadAsync(file)
+      .then(async (zip) => {
+        const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+        const htmlName = entries.find((n) => /index\.html?$/i.test(n)) || entries.find((n) => /\.html?$/i.test(n));
+        if (!htmlName) throw new Error(es ? 'El .zip no tiene ningún archivo .html adentro.' : 'The .zip has no .html file inside.');
+        const imageEntries = entries.filter((n) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(n));
+        let html = stripScripts(await zip.files[htmlName].async('string'));
+        const images = [];
+        let idx = 0;
+        html = html.replace(/(<img\b[^>]*\bsrc\s*=\s*["'])([^"']+)(["'])/gi, (match, pre, src, post) => {
+          if (/^(https?:|data:|cid:)/i.test(src)) return match;
+          let decoded = src;
+          try { decoded = decodeURIComponent(src); } catch {}
+          decoded = decoded.replace(/^\.?\//, '');
+          const found = imageEntries.find((n) => n === decoded || n.endsWith('/' + decoded) || n.split('/').pop() === decoded.split('/').pop());
+          if (!found) return match;
+          let existing = images.find((im) => im._entry === found);
+          if (!existing) {
+            existing = { cid: `img${idx++}`, filename: found.split('/').pop(), _entry: found };
+            images.push(existing);
+          }
+          return `${pre}cid:${existing.cid}${post}`;
+        });
+        await Promise.all(images.map(async (im) => {
+          im.base64 = await zip.files[im._entry].async('base64');
+          im.contentType = guessImageContentType(im.filename);
+          delete im._entry;
+        }));
+        setAnnounceHtml(html);
+        setAnnounceImages(images);
+        let preview = html;
+        images.forEach((im) => { preview = preview.split(`cid:${im.cid}`).join(`data:${im.contentType};base64,${im.base64}`); });
+        setAnnouncePreviewHtml(preview);
+      })
+      .catch((e) => {
+        setAnnounceZipError((e && e.message) || (es ? 'No se pudo leer el .zip.' : "Couldn't read the .zip."));
+        setAnnounceHtml('');
+        setAnnouncePreviewHtml('');
+        setAnnounceImages([]);
+      })
+      .finally(() => setAnnounceZipParsing(false));
+  };
+  const announceTextBodyHtml = `<p>${announceForm.body.replace(/\n/g, '</p><p>')}</p>`;
+  const announcePreviewFull = announceMode === 'html'
+    ? announcePreviewHtml
+    : announcementPreviewWrap(announceForm.subject || (es ? '(sin asunto)' : '(no subject)'), announceTextBodyHtml);
+  const announceCanSend = announceMode === 'html'
+    ? !!(announceForm.subject.trim() && announceHtml)
+    : !!(announceForm.subject.trim() && announceForm.body.trim());
   const sendAnnouncementNow = () => {
-    if (!announceForm.subject.trim() || !announceForm.body.trim()) return;
+    if (!announceCanSend) return;
     setAnnounceSending(true);
     setAnnounceResult(null);
-    window.arcanaSendAnnouncement(announceForm.subject, `<p>${announceForm.body.replace(/\n/g, '</p><p>')}</p>`)
-      .then((res) => { setAnnounceResult(res); setAnnounceForm({ subject: '', body: '' }); })
+    const payload = announceMode === 'html'
+      ? { subject: announceForm.subject, html: announceHtml, images: announceImages, raw: true }
+      : { subject: announceForm.subject, html: announceTextBodyHtml };
+    window.arcanaSendAnnouncement(payload)
+      .then((res) => {
+        setAnnounceResult(res);
+        setAnnounceForm({ subject: '', body: '' });
+        setAnnounceHtml(''); setAnnouncePreviewHtml(''); setAnnounceImages([]); setAnnounceZipName('');
+      })
       .catch((e) => setAnnounceResult({ error: e.message }))
       .finally(() => setAnnounceSending(false));
   };
@@ -1356,22 +1449,79 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
 
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.1)' }}>
           <div className="italic" style={{ fontSize: 12.5, opacity: .75, marginBottom: 8 }}>
-            {es ? 'Mandar una novedad / producto puntual (texto libre) a la misma lista:' : 'Send a one-off update / product announcement (free text) to the same list:'}
+            {es ? 'Mandar una novedad / producto puntual a la misma lista:' : 'Send a one-off update / product announcement to the same list:'}
           </div>
+
+          <div className="setup-row" style={{ marginBottom: 10, gap: 8 }}>
+            <button
+              className={announceMode === 'text' ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => setAnnounceMode('text')}
+              style={{ fontSize: 12.5 }}
+            >
+              {es ? 'Texto simple' : 'Plain text'}
+            </button>
+            <button
+              className={announceMode === 'html' ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => setAnnounceMode('html')}
+              style={{ fontSize: 12.5 }}
+            >
+              {es ? 'HTML (subir .zip)' : 'HTML (upload .zip)'}
+            </button>
+          </div>
+
           <input
             placeholder={es ? 'Asunto' : 'Subject'}
             value={announceForm.subject}
             onChange={(e) => setAnnounceForm((f) => ({ ...f, subject: e.target.value }))}
             style={{ width: '100%', marginBottom: 8 }}
           />
-          <textarea
-            placeholder={es ? 'Mensaje…' : 'Message…'}
-            value={announceForm.body}
-            onChange={(e) => setAnnounceForm((f) => ({ ...f, body: e.target.value }))}
-            rows={4}
-            style={{ width: '100%', marginBottom: 8 }}
-          />
-          <button className="btn btn-primary" onClick={sendAnnouncementNow} disabled={announceSending}>
+
+          {announceMode === 'text' ? (
+            <textarea
+              placeholder={es ? 'Mensaje…' : 'Message…'}
+              value={announceForm.body}
+              onChange={(e) => setAnnounceForm((f) => ({ ...f, body: e.target.value }))}
+              rows={4}
+              style={{ width: '100%', marginBottom: 8 }}
+            />
+          ) : (
+            <div style={{ marginBottom: 8 }}>
+              <p className="setup-hint italic" style={{ marginBottom: 6 }}>
+                {es
+                  ? 'Subí un .zip con un archivo .html (el diseño completo del email) y su carpeta de imágenes -- las imágenes se detectan solas y se mandan incrustadas en el email, no como links externos.'
+                  : 'Upload a .zip with an .html file (the full email design) and its images folder -- images are detected automatically and embedded in the email, not linked externally.'}
+              </p>
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(e) => parseAnnouncementZip(e.target.files && e.target.files[0])}
+                style={{ fontSize: 12.5 }}
+              />
+              {announceZipParsing && <p className="italic" style={{ fontSize: 12, opacity: .7, marginTop: 6 }}>{es ? 'Leyendo el .zip…' : 'Reading the .zip…'}</p>}
+              {announceZipError && <p className="setup-gate-error" style={{ marginTop: 6 }}>{announceZipError}</p>}
+              {!announceZipError && announceZipName && announceHtml && (
+                <p className="italic" style={{ fontSize: 12, opacity: .7, marginTop: 6 }}>
+                  {es
+                    ? `${announceZipName} · ${announceImages.length} imagen(es) incrustada(s).`
+                    : `${announceZipName} · ${announceImages.length} embedded image(s).`}
+                </p>
+              )}
+            </div>
+          )}
+
+          {(announceMode === 'text' ? announceForm.body.trim() : announceHtml) && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="italic" style={{ fontSize: 12, opacity: .6, marginBottom: 4 }}>{es ? 'Vista previa:' : 'Preview:'}</div>
+              <iframe
+                title="announcement-preview"
+                srcDoc={announcePreviewFull}
+                sandbox=""
+                style={{ width: '100%', height: 360, border: '1px solid rgba(255,255,255,.15)', borderRadius: 8, background: '#fff' }}
+              />
+            </div>
+          )}
+
+          <button className="btn btn-primary" onClick={sendAnnouncementNow} disabled={announceSending || !announceCanSend}>
             {announceSending ? (es ? 'Enviando…' : 'Sending…') : (es ? 'Enviar novedad' : 'Send update')}
           </button>
           {announceResult && (

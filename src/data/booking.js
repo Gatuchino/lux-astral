@@ -172,7 +172,7 @@ window.arcanaSendContactMessage = (opts) => arcanaBookingCall('send-contact-mess
 window.arcanaActivateMembership = (token) => arcanaBookingCall('activate-membership', { token }); // -> { email, planKey, source }
 window.arcanaNewsletterOptIn = (email, optIn) => arcanaBookingCall('newsletter-optin', { email, optIn });
 window.arcanaSendNewsletterNow = (force) => arcanaBookingCall('send-daily-newsletter', { force: !!force, origin: window.location.origin });
-window.arcanaSendAnnouncement = (subject, html) => arcanaBookingCall('send-announcement', { subject, html });
+window.arcanaSendAnnouncement = ({ subject, html, images, raw }) => arcanaBookingCall('send-announcement', { subject, html, images, raw }); // images: [{cid, filename, contentType, base64}] -- ver zip de HTML en Setup
 window.arcanaListMemberships = async function () {
   const setupToken = (() => { try { return JSON.parse(sessionStorage.getItem('arcana_setup_session') || 'null')?.token || ''; } catch { return ''; } })();
   const res = await fetch('/.netlify/functions/booking?action=list-memberships&setupToken=' + encodeURIComponent(setupToken));

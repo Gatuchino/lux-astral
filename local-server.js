@@ -1069,6 +1069,14 @@ async function resendSend(to, subject, html, opts = {}) {
   const from = process.env.RESEND_FROM || 'Lux Astral <hola@luxastral.com>';
   const body = { from, to: [to], subject, html };
   if (opts.replyTo) body.reply_to = opts.replyTo;
+  if (opts.attachments && opts.attachments.length) {
+    body.attachments = opts.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      ...(a.contentType ? { content_type: a.contentType } : {}),
+      ...(a.contentId ? { content_id: a.contentId } : {}),
+    }));
+  }
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
@@ -2054,17 +2062,28 @@ async function handleBooking(req, res, url) {
 
     if (action === 'send-announcement') {
       if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
-      // Novedades/productos — texto libre que Christian escribe en Setup,
-      // se manda a quien se suscribió al boletín (misma lista).
-      const { subject, html: bodyHtml } = payload;
+      // Novedades/productos — texto libre (o HTML subido como .zip, con
+      // imágenes embebidas) que Christian arma en Setup, se manda a quien
+      // se suscribió al boletín (misma lista). "raw": true significa que
+      // bodyHtml ya es un email HTML completo (viene del .zip) y no hay
+      // que envolverlo en el template de novedades.
+      const { subject, html: bodyHtml, images, raw } = payload;
       if (!subject || !bodyHtml) return sendJson(res, 400, { error: 'Falta el asunto o el contenido.' });
+      const imgs = (Array.isArray(images) ? images : []).slice(0, 20);
+      const totalB64 = imgs.reduce((sum, im) => sum + (im && im.base64 ? im.base64.length : 0), 0);
+      if (totalB64 > 25 * 1024 * 1024) {
+        return sendJson(res, 400, { error: 'Las imágenes del .zip pesan demasiado para mandarlas por email (límite ~18 MB reales, tope de Resend). Achicalas o sacá alguna.' });
+      }
+      const attachments = imgs
+        .filter((im) => im && im.base64 && im.filename && im.cid)
+        .map((im) => ({ filename: String(im.filename).slice(0, 120), content: im.base64, contentType: im.contentType || undefined, contentId: String(im.cid).slice(0, 100) }));
+      const html = raw ? bodyHtml : newsletterEmailHtml(subject, bodyHtml);
       const recipients = store.subscribers.filter((s) => s.newsletterOptIn && s.status === 'ACTIVE');
-      const html = newsletterEmailHtml(subject, bodyHtml);
       let sent = 0;
       const failed = [];
       for (const sub of recipients) {
         try {
-          await resendSend(sub.email, subject, html);
+          await resendSend(sub.email, subject, html, { attachments });
           sent++;
         } catch (e) {
           console.error('[announcement] fallo el envio a', sub.email, '->', e.message, e.detail || '');
