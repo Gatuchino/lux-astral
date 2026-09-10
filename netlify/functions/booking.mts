@@ -670,13 +670,26 @@ function activationEmailHtml(planKey: string, activationUrl: string, es: boolean
 let _tarotCardsCache: any = null;
 async function loadTarotCardsData(origin: string) {
   if (_tarotCardsCache) return _tarotCardsCache;
-  const res = await fetch(`${origin}/src/data/cards.js`);
-  if (!res.ok) throw new Error("No se pudo leer src/data/cards.js desde " + origin);
-  const code = await res.text();
-  const sandbox: any = {};
-  const fn = new Function("window", code + "\n;return window.TAROT_CARDS;");
-  _tarotCardsCache = fn(sandbox);
-  return _tarotCardsCache;
+  const url = `${origin}/src/data/cards.js`;
+  let lastErr: any = null;
+  // Reintento simple: a veces el fetch del propio dominio falla en el
+  // primer intento (blip transitorio de red/CDN) -- con un segundo
+  // intento alcanza casi siempre, sin agregar demora perceptible.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`No se pudo leer src/data/cards.js desde ${origin} (HTTP ${res.status}).`);
+      const code = await res.text();
+      const sandbox: any = {};
+      const fn = new Function("window", code + "\n;return window.TAROT_CARDS;");
+      _tarotCardsCache = fn(sandbox);
+      return _tarotCardsCache;
+    } catch (e: any) {
+      lastErr = e;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  throw lastErr;
 }
 
 // Misma fórmula determinística que App.jsx (dailyCard) -- mismo día,
