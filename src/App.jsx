@@ -258,6 +258,7 @@ function App() {
     case 'moon':        page = <MoonPage lang={lang} />; break;
     case 'marketplace': page = <MarketplacePage lang={lang} setRoute={setRoute} profile={profile} />; break;
     case 'philosophy':  page = <PhilosophyPage lang={lang} />; break;
+    case 'contact':     page = <ContactPage lang={lang} />; break;
     case 'about':       page = <AboutPage lang={lang} setRoute={setRoute} />; break;
     case 'merch':        page = <MerchPage lang={lang} setRoute={setRoute} />; break;
     case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} onSignOut={signOut} requireAuth={requireAuth} />; break;

@@ -94,6 +94,9 @@ function AboutPage({ lang, setRoute }) {
           <button className="btn btn-primary" onClick={() => setRoute({ page: 'readings' })}>
             {lang === 'es' ? 'Empezar una lectura' : 'Begin a reading'} ✦
           </button>
+          <button className="btn btn-ghost" onClick={() => setRoute({ page: 'contact' })}>
+            {t.nav_contact} →
+          </button>
           <button className="btn btn-ghost" onClick={() => setRoute({ page: 'philosophy' })}>
             {t.nav_philosophy} →
           </button>

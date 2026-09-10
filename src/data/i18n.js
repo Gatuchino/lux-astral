@@ -10,6 +10,7 @@ window.I18N = {
     nav_marketplace: "Tarotistas",
     nav_merch: "Tienda",
     nav_philosophy: "Filosofía",
+    nav_contact: "Contacto",
     nav_profile: "Perfil",
     nav_login: "Registro / Iniciar sesión",
     nav_login: "Entrar",
@@ -272,6 +273,24 @@ window.I18N = {
     phil_p4: "La lectura empieza cuando la aceptas, y termina cuando decides qué hacer con ella.",
     phil_signed: "— El equipo de Lux Astral",
 
+    // Contact
+    contact_h: "Contacto",
+    contact_sub: "¿Preguntas, comentarios o algo que quieras contarnos? Escribinos.",
+    contact_name_label: "Nombre",
+    contact_name_ph: "Tu nombre",
+    contact_email_label: "Email",
+    contact_email_ph: "tu@email.com",
+    contact_message_label: "Mensaje",
+    contact_message_ph: "Contanos en qué te podemos ayudar…",
+    contact_submit: "Enviar mensaje",
+    contact_sending: "Enviando…",
+    contact_success: "¡Listo! Recibimos tu mensaje y te vamos a responder a la brevedad.",
+    contact_error_default: "No pudimos enviar tu mensaje. Probá de nuevo en unos minutos.",
+    contact_error_email: "Escribí un email válido.",
+    contact_error_message: "Escribí tu mensaje primero.",
+    contact_direct_lead: "¿Preferís escribirnos directo?",
+    contact_direct_cta: "Mandanos un email a",
+
     // Profile
     profile_h: "Tu perfil",
     profile_sub: "Tus lecturas quedan aquí, aunque no lo estén en el aire",
@@ -522,7 +541,7 @@ window.I18N = {
     about_team_body: "Somos un equipo pequeño de tarotistas, diseñadoras e ingenieras. Llevamos años leyendo — algunas de nosotras, décadas — y quisimos construir el sitio de tarot que a nosotras nos hubiera gustado encontrar: cero clickbait, cero “te va a pasar algo”, cero terror.",
     about_signed: "— El equipo de Lux Astral",
     about_cta_h: "¿Preguntas?",
-    about_cta_body: "Escríbenos a hola@luxastral.com. Respondemos lento, pero respondemos.",
+    about_cta_body: "Escribinos, nos encantaría saber de vos. Respondemos lento, pero respondemos.",
 
     // Merchandising
     merch_eyebrow: "Tienda",
@@ -546,6 +565,7 @@ window.I18N = {
     nav_marketplace: "Readers",
     nav_merch: "Shop",
     nav_philosophy: "Philosophy",
+    nav_contact: "Contact",
     nav_profile: "Profile",
     nav_login: "Sign up / Log in",
     nav_login: "Sign in",
@@ -802,6 +822,24 @@ window.I18N = {
     phil_p4: "A reading begins when you accept it, and ends when you decide what to do with it.",
     phil_signed: "— The Lux Astral team",
 
+    // Contact
+    contact_h: "Contact",
+    contact_sub: "Questions, feedback, or something you'd like to tell us? Write to us.",
+    contact_name_label: "Name",
+    contact_name_ph: "Your name",
+    contact_email_label: "Email",
+    contact_email_ph: "you@email.com",
+    contact_message_label: "Message",
+    contact_message_ph: "Tell us how we can help…",
+    contact_submit: "Send message",
+    contact_sending: "Sending…",
+    contact_success: "Done! We got your message and will get back to you shortly.",
+    contact_error_default: "We couldn't send your message. Please try again in a few minutes.",
+    contact_error_email: "Write a valid email.",
+    contact_error_message: "Write your message first.",
+    contact_direct_lead: "Prefer to write to us directly?",
+    contact_direct_cta: "Email us at",
+
     profile_h: "Your profile",
     profile_sub: "Your readings stay here, even when they're no longer in the air",
     profile_history_h: "Reading history",
@@ -1049,7 +1087,7 @@ window.I18N = {
     about_team_body: "We're a small team of tarot readers, designers, and engineers. Some of us have been reading for decades. We wanted to build the tarot site we'd have liked to find: no clickbait, no “something's coming for you”, no fear.",
     about_signed: "— The Lux Astral team",
     about_cta_h: "Questions?",
-    about_cta_body: "Write to us at hola@luxastral.com. We reply slowly, but we reply.",
+    about_cta_body: "Write to us, we'd love to hear from you. We reply slowly, but we reply.",
 
     // Merchandising
     merch_eyebrow: "Shop",

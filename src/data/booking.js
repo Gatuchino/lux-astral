@@ -168,6 +168,7 @@ window.arcanaApplyRetentionOffer = () => arcanaBookingCall('apply-retention-offe
 // Encuesta de calificación y buzón de sugerencias — van a comentarios@luxastral.com.
 window.arcanaSubmitAppRating = (opts) => arcanaBookingCall('submit-app-rating', opts); // { rating, email?, comment? }
 window.arcanaSubmitSuggestion = (opts) => arcanaBookingCall('submit-suggestion', opts); // { message, email? }
+window.arcanaSendContactMessage = (opts) => arcanaBookingCall('send-contact-message', opts); // { name?, email, message } -> { ok } ; va a contacto@luxastral.com
 window.arcanaActivateMembership = (token) => arcanaBookingCall('activate-membership', { token }); // -> { email, planKey, source }
 window.arcanaNewsletterOptIn = (email, optIn) => arcanaBookingCall('newsletter-optin', { email, optIn });
 window.arcanaSendNewsletterNow = (force) => arcanaBookingCall('send-daily-newsletter', { force: !!force, origin: window.location.origin });

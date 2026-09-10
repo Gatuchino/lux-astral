@@ -1242,6 +1242,133 @@ function PhilosophyPage({ lang }) {
   );
 }
 
+// =========== Contact ===========
+function ContactPage({ lang }) {
+  const t = window.I18N[lang];
+  const es = lang === 'es';
+  const [form, setForm] = React.useState({ name: '', email: '', message: '' });
+  const [status, setStatus] = React.useState('idle'); // idle | sending | sent | error
+  const [error, setError] = React.useState('');
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    const email = form.email.trim();
+    const message = form.message.trim();
+    if (!email || !email.includes('@')) { setStatus('error'); setError(t.contact_error_email); return; }
+    if (!message) { setStatus('error'); setError(t.contact_error_message); return; }
+    setStatus('sending');
+    setError('');
+    window.arcanaSendContactMessage({ name: form.name.trim(), email, message })
+      .then(() => { setStatus('sent'); setForm({ name: '', email: '', message: '' }); })
+      .catch((e) => { setStatus('error'); setError(e.message || t.contact_error_default); });
+  };
+
+  return (
+    <div className="page contact-page">
+      <div className="page-head">
+        <div className="eyebrow">✦</div>
+        <h1 className="page-title">{t.contact_h}</h1>
+        <p className="contact-sub">{t.contact_sub}</p>
+      </div>
+
+      {status === 'sent' ? (
+        <div className="contact-success">{t.contact_success}</div>
+      ) : (
+        <form className="contact-form" onSubmit={onSubmit}>
+          <div className="form-field">
+            <label>{t.contact_name_label}</label>
+            <input
+              type="text"
+              placeholder={t.contact_name_ph}
+              value={form.name}
+              maxLength={80}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+          <div className="form-field">
+            <label>{t.contact_email_label}</label>
+            <input
+              type="email"
+              placeholder={t.contact_email_ph}
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="form-field">
+            <label>{t.contact_message_label}</label>
+            <textarea
+              placeholder={t.contact_message_ph}
+              value={form.message}
+              maxLength={3000}
+              rows={6}
+              onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+              required
+            />
+          </div>
+          {status === 'error' && <div className="contact-error">{error}</div>}
+          <button className="btn btn-primary" type="submit" disabled={status === 'sending'}>
+            {status === 'sending' ? t.contact_sending : t.contact_submit} ✦
+          </button>
+        </form>
+      )}
+
+      <div className="contact-direct">
+        <span>{t.contact_direct_lead}</span>{' '}
+        <span>{t.contact_direct_cta} <a href="mailto:contacto@luxastral.com">contacto@luxastral.com</a></span>
+      </div>
+
+      <style>{`
+        .contact-page { max-width: 560px; }
+        .contact-sub {
+          margin-top: 16px;
+          font-size: 16px;
+          line-height: 1.6;
+          color: var(--ink-soft);
+          text-align: center;
+        }
+        .contact-form { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
+        .contact-form textarea {
+          width: 100%;
+          resize: vertical;
+          font-family: inherit;
+          font-size: 15px;
+          line-height: 1.5;
+          padding: 12px 14px;
+          border-radius: 10px;
+          border: 1px solid var(--line);
+          background: var(--panel, rgba(255,255,255,0.03));
+          color: inherit;
+        }
+        .contact-form button { align-self: center; margin-top: 8px; }
+        .contact-error {
+          color: #e08080;
+          font-size: 13.5px;
+          text-align: center;
+        }
+        .contact-success {
+          text-align: center;
+          font-size: 17px;
+          line-height: 1.6;
+          color: var(--gold);
+          padding: 32px 16px;
+          border: 1px solid var(--line);
+          border-radius: 14px;
+        }
+        .contact-direct {
+          text-align: center;
+          margin-top: 40px;
+          padding-top: 24px;
+          border-top: 1px solid var(--line);
+          font-size: 14px;
+          color: var(--ink-soft);
+        }
+        .contact-direct a { color: var(--gold); }
+      `}</style>
+    </div>
+  );
+}
+
 // =========== Profile ===========
 function buildMonthGrid(year, month) {
   // Grilla de 6 semanas (Lunes primero), siempre completa para que el

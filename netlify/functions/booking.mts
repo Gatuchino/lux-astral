@@ -601,7 +601,7 @@ async function checkOraculoFreeSlot(store: any, email: string) {
 // =====================================================================
 const HONORARY_PLAN_KEYS = ["luna", "estrella", "oraculo"];
 
-async function resendSend(to: string, subject: string, html: string) {
+async function resendSend(to: string, subject: string, html: string, opts: { replyTo?: string } = {}) {
   const key = Netlify.env.get("RESEND_API_KEY");
   if (!key) {
     const err: any = new Error("Falta RESEND_API_KEY (agregala a las variables de entorno del sitio en Netlify para poder mandar emails).");
@@ -609,10 +609,12 @@ async function resendSend(to: string, subject: string, html: string) {
     throw err;
   }
   const from = Netlify.env.get("RESEND_FROM") || "Lux Astral <hola@luxastral.com>";
+  const body: any = { from, to: [to], subject, html };
+  if (opts.replyTo) body.reply_to = opts.replyTo;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ from, to: [to], subject, html }),
+    body: JSON.stringify(body),
   });
   const data: any = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -646,6 +648,19 @@ function registrationNotifyHtml(name: string, email: string) {
       <strong>Nombre:</strong> ${esc(name || "(sin nombre)")}<br/>
       <strong>Email:</strong> ${esc(email)}
     </p>
+  </div>`;
+}
+
+function contactMessageHtml(name: string, email: string, message: string) {
+  const esc = (s: string) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;">
+    <h1 style="color:#d4a85a;font-size:20px;">Nuevo mensaje de contacto</h1>
+    <p style="font-size:15px;line-height:1.6;">
+      <strong>Nombre:</strong> ${esc(name || "(sin nombre)")}<br/>
+      <strong>Email:</strong> ${esc(email)}
+    </p>
+    <p style="font-size:15px;line-height:1.7;white-space:pre-wrap;border-top:1px solid #3a3060;padding-top:16px;margin-top:16px;">${esc(message)}</p>
   </div>`;
 }
 
@@ -1406,6 +1421,29 @@ export default async (req: Request) => {
         emailError = e.isConfig ? e.message : (e.detail && e.detail.message) || e.message || "No se pudo enviar el email.";
       }
       return json(200, { ok: true, emailSent, emailError });
+    }
+
+    if (action === "send-contact-message") {
+      const name = (payload.name || "").trim().slice(0, 80);
+      const email = (payload.email || "").trim().toLowerCase();
+      const message = (payload.message || "").trim().slice(0, 3000);
+      if (!email || !email.includes("@")) return json(400, { error: "Escribí un email válido." });
+      if (!message) return json(400, { error: "Escribí tu mensaje primero." });
+      let emailSent = false;
+      let emailError = "";
+      try {
+        await resendSend(
+          "contacto@luxastral.com",
+          `Nuevo mensaje de contacto${name ? " de " + name : ""}`,
+          contactMessageHtml(name, email, message),
+          { replyTo: email }
+        );
+        emailSent = true;
+      } catch (e: any) {
+        emailError = e.isConfig ? e.message : (e.detail && e.detail.message) || e.message || "No se pudo enviar el email.";
+      }
+      if (!emailSent) return json(502, { error: emailError || "No se pudo enviar tu mensaje." });
+      return json(200, { ok: true });
     }
 
     if (action === "grant-honorary-membership") {

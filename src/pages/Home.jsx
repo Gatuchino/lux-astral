@@ -140,6 +140,7 @@ function HomePage({ lang, setRoute, dailyCard }) {
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'philosophy' }); }}>{t.nav_philosophy}</a>
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'library' }); }}>{t.nav_library}</a>
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'pricing' }); }}>{t.pricing_h}</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'contact' }); }}>{t.nav_contact}</a>
         </div>
       </footer>
 
