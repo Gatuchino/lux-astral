@@ -753,6 +753,14 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
                     </div>
                     {speakError && <p className="reveal-followup-error">{speakError}</p>}
                     <ReadingSignature />
+                    {!isPaid && (
+                      <p className="italic reveal-signature-upsell">
+                        {t.result_upsell_deeper}{' '}
+                        <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'pricing' }); }}>
+                          {lang === 'es' ? 'Conocer los planes' : 'See the plans'} →
+                        </a>
+                      </p>
+                    )}
                   </div>
                 </div>
               </>
@@ -2577,6 +2585,17 @@ function ReadingStyles() {
       }
       .reveal-save-upsell a { color: var(--gold); text-decoration: none; }
       .reveal-save-upsell a:hover { text-decoration: underline; }
+      .reveal-signature-upsell {
+        color: var(--ink-mute);
+        font-size: 13px;
+        text-align: center;
+        margin-top: 14px;
+        max-width: 420px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .reveal-signature-upsell a { color: var(--gold); text-decoration: none; white-space: nowrap; }
+      .reveal-signature-upsell a:hover { text-decoration: underline; }
 
       /* ===== Astral Rain (animación de espera durante la interpretación IA) ===== */
       .astral-rain {
