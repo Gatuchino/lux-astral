@@ -660,7 +660,7 @@ function MarketplacePage({ lang, setRoute, profile }) {
                 <div className="live-rate">
                   <span className="live-rate-currency">$</span>
                   <span className="live-rate-value">{price}</span>
-                  <span className="live-rate-unit">/ 30 min</span>
+                  <span className="live-rate-unit">/ 45 min</span>
                 </div>
                 <button className="btn btn-primary btn-lg" onClick={() => openBooking(tr)}>
                   {t.market_book} →
@@ -3104,6 +3104,12 @@ function PricingPage({ lang, setRoute, profile }) {
     oraculo:  { month: planPrice('oraculo_month'), year: planPrice('oraculo_year') },
   };
 
+  // Precio de la sesión paga con tarotista (45 min) -- mismo valor real que
+  // se cobra en el Marketplace (store.settings.sessionBasePrice), así este
+  // cuadro nunca queda desactualizado si Christian cambia el precio en Setup.
+  const sessionPriceRaw = plansConfig.sessionBasePrice;
+  const sessionPrice = Number.isFinite(Number(sessionPriceRaw)) ? Number(sessionPriceRaw) : 29;
+
   const priceLabel = (planKey) => {
     const p = prices[planKey][billing];
     if (p === 0) return { big: t.pricing_free_price, small: t.pricing_free_price_sub, currency: false };
@@ -3162,6 +3168,7 @@ function PricingPage({ lang, setRoute, profile }) {
       cta: t.plan_oraculo_cta,
       features: [t.plan_oraculo_f1, t.plan_oraculo_f2, t.plan_oraculo_f3, t.plan_oraculo_f4, t.plan_oraculo_f5, t.plan_oraculo_f6],
       featured: false,
+      highlightFeature: 1, // f2: la sesión de video gratis -- lo que justifica el precio de Oráculo
       sigil: '✧',
     },
   ];
@@ -3220,7 +3227,7 @@ function PricingPage({ lang, setRoute, profile }) {
 
               <ul className="plan-features">
                 {plan.features.map((f, i) => (
-                  <li key={i}>
+                  <li key={i} className={i === plan.highlightFeature ? 'is-highlight' : ''}>
                     <span className="feat-check" aria-hidden>✦</span>
                     <span>{f}</span>
                   </li>
@@ -3236,9 +3243,23 @@ function PricingPage({ lang, setRoute, profile }) {
           <div className="eyebrow" style={{ marginBottom: 10 }}>— {t.nav_marketplace || (lang === 'es' ? 'Tarotistas' : 'Readers')} —</div>
           <h3 className="ms-h">{t.pricing_market_h}</h3>
           <p className="ms-sub italic">{t.pricing_market_sub}</p>
+          <ul className="ms-features">
+            {[t.pricing_sessions_f1, t.pricing_sessions_f2, t.pricing_sessions_f3, t.pricing_sessions_f4, t.pricing_sessions_f5].map((f, i) => (
+              <li key={i}>
+                <span className="feat-check" aria-hidden>✦</span>
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="ms-note italic">{t.pricing_sessions_note}</p>
         </div>
         <div className="ms-side">
-          <div className="ms-rate">{t.pricing_market_rate}</div>
+          <div className="ms-price">
+            <span className="ms-price-currency">{t.pricing_currency}</span>
+            <span className="ms-price-big">{sessionPrice}</span>
+            <span className="ms-price-unit">{t.pricing_market_price_unit}</span>
+          </div>
+          <div className="ms-rate">{t.pricing_market_duration}</div>
           <button className="btn btn-ghost" onClick={() => go('marketplace')}>{t.pricing_market_cta} →</button>
         </div>
       </div>
@@ -3513,7 +3534,24 @@ function PricingPage({ lang, setRoute, profile }) {
           opacity: 0.9;
         }
 
-        /* Marketplace strip */
+        /* Feature destacada (ej: la sesión gratis de Oráculo, el gatillante
+           del precio del plan) -- resalte sutil en dorado sin romper el
+           layout de la lista. */
+        .plan-features li.is-highlight {
+          margin: 0 -12px;
+          padding: 10px 12px;
+          background: linear-gradient(90deg, rgba(212,168,90,0.16), rgba(212,168,90,0.04));
+          border: 1px solid rgba(212,168,90,0.4);
+          border-radius: 10px;
+          color: var(--gold);
+        }
+        .plan-features li.is-highlight .feat-check { opacity: 1; }
+        .plan-features li.is-highlight span:last-child { font-weight: 600; }
+
+        /* Marketplace strip -- cuadro de Sesiones completas pagas, separado
+           de lo que ya trae el plan Oráculo (sesión gratis de 15 min). El
+           precio viene siempre en vivo de store.settings.sessionBasePrice
+           (mismo valor real que se cobra en el Marketplace), nunca hardcodeado. */
         .market-strip {
           margin-top: 64px;
           padding: 36px 40px;
@@ -3539,14 +3577,64 @@ function PricingPage({ lang, setRoute, profile }) {
           margin-bottom: 8px;
         }
         .ms-sub { font-size: 16px; color: var(--ink-soft); max-width: 560px; }
-        .ms-side { display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
+        .ms-features {
+          list-style: none;
+          margin: 22px 0 0;
+          padding: 20px 0 0;
+          border-top: 1px solid var(--line);
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 24px;
+          max-width: 560px;
+        }
+        @media (max-width: 760px) { .ms-features { grid-template-columns: 1fr; text-align: left; } }
+        .ms-features li {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          font-family: 'Cormorant Garamond', serif;
+          font-size: 15px;
+          line-height: 1.4;
+          color: var(--ink);
+        }
+        .ms-note {
+          margin-top: 18px;
+          font-size: 14px;
+          color: var(--ink-mute);
+          max-width: 560px;
+        }
+        .ms-side { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
         @media (max-width: 760px) { .ms-side { align-items: center; } }
+        .ms-price {
+          display: flex;
+          align-items: baseline;
+          gap: 4px;
+        }
+        .ms-price-currency {
+          font-family: 'Cinzel', serif;
+          font-size: 18px;
+          color: var(--gold);
+        }
+        .ms-price-big {
+          font-family: 'Cinzel', serif;
+          font-size: 40px;
+          font-weight: 500;
+          color: var(--gold);
+          line-height: 1;
+        }
+        .ms-price-unit {
+          font-family: 'Cormorant Garamond', serif;
+          font-style: italic;
+          font-size: 14px;
+          color: var(--ink-soft);
+          margin-left: 2px;
+        }
         .ms-rate {
           font-family: 'Cinzel', serif;
           font-size: 12px;
           letter-spacing: 0.2em;
           text-transform: uppercase;
-          color: var(--gold);
+          color: var(--ink-soft);
         }
 
         /* FAQ */

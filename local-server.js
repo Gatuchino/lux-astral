@@ -384,7 +384,7 @@ async function handleTTS(req, res) {
 // fetch crudo (misma filosofía que el resto del server).
 // =====================================================================
 const BOOKING_STORE_PATH = path.join(ROOT, 'data', 'booking-store.json');
-const DEFAULT_SETTINGS = { sessionBasePrice: 22, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 }, platformCommissionPct: 25 };
+const DEFAULT_SETTINGS = { sessionBasePrice: 29, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 }, platformCommissionPct: 25 };
 
 // 2026-09-08 (a pedido de Christian): panel de Setup con acceso real por
 // email + contraseña, no solo un gate cosmético. store.settings.powerUsers
@@ -1636,6 +1636,7 @@ async function handleBooking(req, res, url) {
           plans: store.settings.paypalPlanIds || null,
           paypalClientId: process.env.PAYPAL_CLIENT_ID || '',
           planPrices: getPlanPrices(store),
+          sessionBasePrice: store.settings.sessionBasePrice,
         });
       }
       if (action === 'subscriber-status') {

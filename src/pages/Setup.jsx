@@ -1604,8 +1604,8 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       <SetupSection
         title={es ? 'Precio y comisión de sesiones de video' : 'Video session price and commission'}
         desc={es
-          ? 'Precio base por sesión de 30 min (si una tarotista no tiene tarifa propia, se usa este), el % de descuento de cada plan de suscripción, y el % de comisión de la plataforma — hoy es solo informativo, los pagos a las tarotistas todavía son manuales. La sesión mensual gratis de Oráculo se aplica aparte, ver la sección de Suscripciones.'
-          : "Base price for a 30-min session (used when a reader has no rate of her own), each subscription plan's discount %, and the platform's commission % — informational for now, payouts to readers are still manual. Oráculo's free monthly session is applied separately, see the Subscriptions section."}
+          ? 'Precio base por sesión de 45 min (si una tarotista no tiene tarifa propia, se usa este), el % de descuento de cada plan de suscripción, y el % de comisión de la plataforma — hoy es solo informativo, los pagos a las tarotistas todavía son manuales. Este precio es el mismo que se muestra en la sección Planes ("Sesiones completas con tarotistas"), se actualiza solo. La sesión mensual gratis de Oráculo (15 min) se aplica aparte, ver la sección de Suscripciones.'
+          : "Base price for a 45-min session (used when a reader has no rate of her own), each subscription plan's discount %, and the platform's commission % — informational for now, payouts to readers are still manual. This is the same price shown on the Plans page (\"Full sessions with readers\"), it updates automatically. Oráculo's free monthly session (15 min) is applied separately, see the Subscriptions section."}
       >
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           <div className="form-field" style={{ marginBottom: 0, maxWidth: 160 }}>

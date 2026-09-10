@@ -6,7 +6,7 @@
 // PayPal (Orders API v2): cobramos directo con nuestra cuenta Business.
 import { getStore } from "@netlify/blobs";
 
-const DEFAULT_SETTINGS = { sessionBasePrice: 22, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 }, platformCommissionPct: 25 };
+const DEFAULT_SETTINGS = { sessionBasePrice: 29, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 }, platformCommissionPct: 25 };
 
 // 2026-09-08 (a pedido de Christian) -- ver local-server.js para el
 // detalle completo comentado: panel de Setup con acceso real por email +
@@ -1241,6 +1241,7 @@ export default async (req: Request) => {
           plans: store.settings.paypalPlanIds || null,
           paypalClientId: Netlify.env.get("PAYPAL_CLIENT_ID") || "",
           planPrices: getPlanPrices(store),
+          sessionBasePrice: store.settings.sessionBasePrice,
         });
       }
       if (action === "subscriber-status") {
