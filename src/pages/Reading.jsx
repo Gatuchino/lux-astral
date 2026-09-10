@@ -199,14 +199,14 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
         let msg;
         if (e.reason === 'spread-not-allowed') {
           msg = lang === 'es'
-            ? 'Esta tirada es solo para planes de pago — con el plan gratis podés hacer la carta del día o la tirada de 3 cartas.'
+            ? 'Esta tirada es solo para planes de pago — con el plan gratis puedes hacer la carta del día o la tirada de 3 cartas.'
             : 'This spread is only for paid plans — the free plan can do the daily card or the 3-card spread.';
         } else if (e.reason === 'daily-limit') {
           msg = lang === 'es'
-            ? 'Ya usaste tu consulta gratis de hoy — volvé mañana, o suscribite para consultas ilimitadas.'
+            ? 'Ya usaste tu consulta gratis de hoy — vuelve mañana, o suscríbete para consultas ilimitadas.'
             : "You've already used today's free reading — come back tomorrow, or subscribe for unlimited readings.";
         } else {
-          msg = lang === 'es' ? 'No pudimos verificar tu acceso, probá de nuevo.' : 'Could not verify your access, please try again.';
+          msg = lang === 'es' ? 'No pudimos verificar tu acceso, prueba de nuevo.' : 'Could not verify your access, please try again.';
         }
         setAccessError(msg);
       })
@@ -348,7 +348,7 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
   const exportReadingPDF = () => {
     const jspdfNs = window.jspdf;
     if (!jspdfNs || !jspdfNs.jsPDF) {
-      alert(lang === 'es' ? 'No se pudo cargar el generador de PDF. Revisá tu conexión y volvé a intentar.' : 'Could not load the PDF generator. Check your connection and try again.');
+      alert(lang === 'es' ? 'No se pudo cargar el generador de PDF. Revisa tu conexión y vuelve a intentar.' : 'Could not load the PDF generator. Check your connection and try again.');
       return;
     }
     const { jsPDF } = jspdfNs;
@@ -1322,7 +1322,7 @@ function readingIconPromptInstruction(lang) {
   const catalog = readingIconCatalogText();
   if (!catalog) return '';
   return lang === 'es'
-    ? `\n\nAl final de tu respuesta, en una línea aparte y sin nada más en esa línea, elegí UN ícono de esta lista que mejor represente la energía general de TODA la lectura (no de una carta puntual) y escribilo exactamente así: [[icon: id-del-icono]]. Si de verdad ninguno encaja, no escribas esa línea.\n\nÍconos disponibles:\n${catalog}`
+    ? `\n\nAl final de tu respuesta, en una línea aparte y sin nada más en esa línea, elige UN ícono de esta lista que mejor represente la energía general de TODA la lectura (no de una carta puntual) y escríbelo exactamente así: [[icon: id-del-icono]]. Si de verdad ninguno encaja, no escribas esa línea.\n\nÍconos disponibles:\n${catalog}`
     : `\n\nAt the end of your response, on its own line with nothing else on it, pick ONE icon from this list that best represents the overall energy of the WHOLE reading (not a single card) and write it exactly like this: [[icon: icon-id]]. If truly none of them fit, don't write that line.\n\nAvailable icons:\n${catalog}`;
 }
 
@@ -1492,17 +1492,17 @@ Be specific to the question. Don't just list the card names mechanically. Maximu
   },
   '3': {
     maxTokens: 1900, maxFollowUps: 0, allowExtraCards: false, pdf: false,
-    instr_es: `Escribe una interpretación elaborada de 4 párrafos o más: dedicá un párrafo (o un bloque bien diferenciado) a cada carta de la tirada explicando su significado en el contexto de la pregunta, y cerrá con un párrafo de conclusión que una todo. Máximo 700 palabras.`,
+    instr_es: `Escribe una interpretación elaborada de 4 párrafos o más: dedica un párrafo (o un bloque bien diferenciado) a cada carta de la tirada explicando su significado en el contexto de la pregunta, y cierra con un párrafo de conclusión que una todo. Máximo 700 palabras.`,
     instr_en: `Write an elaborate interpretation of 4 or more paragraphs: dedicate one paragraph (or a clearly separate block) to each card in the spread, explaining its meaning in context of the question, and close with a concluding paragraph that ties it all together. Maximum 700 words.`,
   },
   '4': {
     maxTokens: 1900, maxFollowUps: 2, allowExtraCards: true, pdf: false,
-    instr_es: `Escribe una interpretación elaborada, de varios párrafos, cubriendo cada carta en profundidad y cómo se conectan entre sí y con la pregunta. Actuás como una tarotista real en una sesión en vivo: si sentís que hace falta más contexto para cerrar bien, podés invitar con calidez a quien consulta a contarte más o a sacar una carta más antes de tu conclusión final. Esta es la lectura inicial de una conversación que puede seguir con preguntas de quien consulta. Máximo 900 palabras.`,
+    instr_es: `Escribe una interpretación elaborada, de varios párrafos, cubriendo cada carta en profundidad y cómo se conectan entre sí y con la pregunta. Actúas como una tarotista real en una sesión en vivo: si sientes que hace falta más contexto para cerrar bien, puedes invitar con calidez a quien consulta a contarte más o a sacar una carta más antes de tu conclusión final. Esta es la lectura inicial de una conversación que puede seguir con preguntas de quien consulta. Máximo 900 palabras.`,
     instr_en: `Write an elaborate, multi-paragraph interpretation, covering each card in depth and how they connect to each other and the question. You act as a real tarot reader in a live session: if you feel more context would help you close well, you may warmly invite the querent to share more or draw one more card before your final conclusion. This is the opening reading of a conversation that may continue with the querent's questions. Maximum 900 words.`,
   },
   '5': {
     maxTokens: 2400, maxFollowUps: 5, allowExtraCards: true, pdf: true,
-    instr_es: `Escribe un informe de lectura muy elaborado y extenso, con el máximo detalle posible: desarrollá cada carta a fondo, sus cruces y matices, y cómo responden a la pregunta. Actuás como una tarotista real en una sesión en vivo, generosa en tiempo y detalle: si hace falta, invitá con calidez a quien consulta a sacar una o más cartas adicionales o a contarte más antes de cerrar. Esta lectura puede seguir con hasta 3 preguntas de quien consulta antes del informe final. Sé extensa y minuciosa.`,
+    instr_es: `Escribe un informe de lectura muy elaborado y extenso, con el máximo detalle posible: desarrolla cada carta a fondo, sus cruces y matices, y cómo responden a la pregunta. Actúas como una tarotista real en una sesión en vivo, generosa en tiempo y detalle: si hace falta, invita con calidez a quien consulta a sacar una o más cartas adicionales o a contarte más antes de cerrar. Esta lectura puede seguir con hasta 3 preguntas de quien consulta antes del informe final. Sé extensa y minuciosa.`,
     instr_en: `Write a very elaborate and extensive reading report, with as much detail as possible: develop each card thoroughly, its crossings and nuances, and how it answers the question. You act as a real tarot reader in a live session, generous with time and detail: if needed, warmly invite the querent to draw one or more extra cards or share more before closing. This reading may continue with up to 3 questions from the querent before the final report. Be extensive and thorough.`,
   },
 };
@@ -1661,15 +1661,15 @@ ${angleLine_en}${iconInstr}`;
 
     const roleInstr_es = [
       isFirst
-        ? 'Empezá con un párrafo breve de apertura que conecte con la pregunta antes de entrar en las cartas.'
-        : 'No repitas ni resumas la tirada completa: seguí directamente con las cartas que te tocan, como si fuera la continuación natural de lo ya dicho.',
-      `Desarrollá en profundidad SOLO estas cartas (las demás las cubre otra parte de la lectura):\n${groupCardsList}`,
+        ? 'Empieza con un párrafo breve de apertura que conecte con la pregunta antes de entrar en las cartas.'
+        : 'No repitas ni resumas la tirada completa: sigue directamente con las cartas que te tocan, como si fuera la continuación natural de lo ya dicho.',
+      `Desarrolla en profundidad SOLO estas cartas (las demás las cubre otra parte de la lectura):\n${groupCardsList}`,
       isLast
         ? (RT.allowExtraCards
-            ? 'Cerrá con un párrafo de conclusión que una todo. Si sentís que hace falta más contexto, podés invitar con calidez a quien consulta a contarte más o a sacar una carta más.'
-            : 'Cerrá con un párrafo breve de conclusión que una todo.')
+            ? 'Cierra con un párrafo de conclusión que una todo. Si sientes que hace falta más contexto, puedes invitar con calidez a quien consulta a contarte más o a sacar una carta más.'
+            : 'Cierra con un párrafo breve de conclusión que una todo.')
         : '',
-      `Aproximadamente ${perGroupWords} palabras para esta parte. No menciones que la lectura está dividida en partes -- escribí con fluidez, como si fuera un único texto continuo.`,
+      `Aproximadamente ${perGroupWords} palabras para esta parte. No menciones que la lectura está dividida en partes -- escribe con fluidez, como si fuera un único texto continuo.`,
     ].filter(Boolean).join('\n');
 
     const roleInstr_en = [
@@ -1746,7 +1746,7 @@ ${interpretation ? (interpretation.llm || interpretation.base) : ''}
 ${historyList ? `\nConversación hasta ahora:\n${historyList}\n` : ''}
 Quien consulta ahora pregunta: "${newQuestion}"
 
-Respondé como la misma tarotista, en 1 a 3 párrafos, cálida, honesta y específica a la pregunta. ${RT.allowExtraCards ? 'Si de verdad hace falta más contexto para responder bien, podés invitarla a sacar una carta más.' : ''}`
+Responde como la misma tarotista, en 1 a 3 párrafos, cálida, honesta y específica a la pregunta. ${RT.allowExtraCards ? 'Si de verdad hace falta más contexto para responder bien, puedes invitarla a sacar una carta más.' : ''}`
     : `You are the same warm expert tarot reader from this conversation. You write in English, second person, no emoji or headings.
 
 Original spread (${spread}):

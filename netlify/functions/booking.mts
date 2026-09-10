@@ -905,14 +905,14 @@ async function generateNewsletterContent(store: any, siteBaseUrl: string) {
   const specialNote = special
     ? `Hoy es una fecha especial: ${special.label_es}. Sin dejar de hablar de la carta indicada, que el CONSEJO del día tenga en cuenta ese espíritu.`
     : "";
-  const prompt = `Sos la voz de Lux Astral, una plataforma de tarot elegante y cálida, editorial (no "esotérico recargado"). La carta del día YA está definida: "${cardNameDisplay}" (palabras clave: ${keywords}). No elijas otra carta, escribí sobre esta.
+  const prompt = `Eres la voz de Lux Astral, una plataforma de tarot elegante y cálida, editorial (no "esotérico recargado"). La carta del día YA está definida: "${cardNameDisplay}" (palabras clave: ${keywords}). No elijas otra carta, escribe sobre esta.
 ${specialNote}
-Escribí en español, tono cálido y místico pero sobrio, sin markdown ni negritas:
+Escribe en español, tono cálido y místico pero sobrio, sin markdown ni negritas:
 1) INTERPRETACION: 2 a 3 frases breves interpretando "${cardNameDisplay}" para hoy, en segunda persona.
 2) FRASE: una frase corta e inspiradora (menos de 14 palabras) para citar entre comillas.
 3) CONSEJO_TITULO: un título de 2 a 4 palabras para un consejo práctico del día.
 4) CONSEJO: 2 a 3 frases breves con un consejo práctico y positivo para afrontar el día, conectado con la carta.
-Respondé EXACTAMENTE en este formato, sin nada antes ni después:
+Responde EXACTAMENTE en este formato, sin nada antes ni después:
 INTERPRETACION: <texto>
 ---
 FRASE: <texto>
@@ -1249,7 +1249,7 @@ export default async (req: Request) => {
       if (!user || !(await verifyAccountPassword(pw, user.passwordSalt, user.passwordHash))) {
         prunePendingSignups(store);
         if (!user && store.pendingSignups[email]) {
-          return json(401, { error: "Todavia no confirmaste tu email -- revisa tu bandeja de entrada (o spam) y hace clic en el link que te mandamos." });
+          return json(401, { error: "Todavía no confirmaste tu email -- revisa tu bandeja de entrada (o spam) y haz clic en el link que te enviamos." });
         }
         return json(401, { error: "Email o contrasena incorrectos." });
       }

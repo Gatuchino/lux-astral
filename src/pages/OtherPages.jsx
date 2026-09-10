@@ -1700,7 +1700,7 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
       {editing && (
         <div className="profile-edit-form">
           <div className="form-field">
-            <label>{es ? '¿Cómo querés que te llamemos?' : 'What should we call you?'}</label>
+            <label>{es ? '¿Cómo quieres que te llamemos?' : 'What should we call you?'}</label>
             <input type="text" value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={40} />
           </div>
           <div className="form-field">
@@ -2787,7 +2787,7 @@ function PricingPage({ lang, setRoute, profile }) {
                 <h2 className="live-modal-h">{lang === 'es' ? 'Suscripción activa' : 'Subscription active'}</h2>
                 <p className="italic" style={{ marginTop: 10 }}>
                   {lang === 'es'
-                    ? 'Ya podés usar tu descuento al reservar una sesión con ese mismo email.'
+                    ? 'Ya puedes usar tu descuento al reservar una sesión con ese mismo email.'
                     : 'You can now use your discount when booking a session with that same email.'}
                 </p>
                 <button className="btn btn-primary btn-lg" style={{ marginTop: 18 }} onClick={closeSubscribe}>
@@ -3520,11 +3520,11 @@ function WelcomePage({ lang, setRoute, token, verifyToken, email: routeEmail, pl
           <>
             <div className="eyebrow" style={{ marginTop: 18 }}>✦ {es ? 'Bienvenida a Lux Astral' : 'Welcome to Lux Astral'} ✦</div>
             <h1 className="welcome-h">
-              {es ? `Ya sos miembro ${planName}` : `You're now a ${planName} member`}
+              {es ? `Ya eres miembro ${planName}` : `You're now a ${planName} member`}
             </h1>
             {!hasName && !nameSaved && (
               <div className="welcome-name-field">
-                <label>{es ? '¿Cómo querés que te llamemos?' : 'What should we call you?'}</label>
+                <label>{es ? '¿Cómo quieres que te llamemos?' : 'What should we call you?'}</label>
                 <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <input
                     type="text"
@@ -3547,7 +3547,7 @@ function WelcomePage({ lang, setRoute, token, verifyToken, email: routeEmail, pl
             <p className="italic" style={{ marginTop: 10, opacity: .85 }}>
               {info.source === 'honorary'
                 ? (es ? 'Tu membresía es un obsequio de Lux Astral — sin costo, con todos los beneficios.' : 'Your membership is a gift from Lux Astral — free, with every benefit included.')
-                : (es ? '¡Gracias por sumarte! Ya podés disfrutar todos los beneficios de tu plan.' : "Thank you for joining! You can now enjoy all of your plan's benefits.")}
+                : (es ? '¡Gracias por sumarte! Ya puedes disfrutar todos los beneficios de tu plan.' : "Thank you for joining! You can now enjoy all of your plan's benefits.")}
             </p>
             {featureKeys.length > 0 && (
               <ul className="welcome-features">

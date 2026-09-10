@@ -84,12 +84,12 @@ window.arcanaGenderInstruction = function (gender, lang) {
   const es = lang === 'es';
   if (gender === 'femenino') {
     return es
-      ? 'Quien consulta se identifica como mujer — podés usar adjetivos y vocativos en femenino si suena natural (por ejemplo "querida" está bien acá).'
+      ? 'Quien consulta se identifica como mujer — puedes usar adjetivos y vocativos en femenino si suena natural (por ejemplo "querida" está bien aquí).'
       : 'The person consulting identifies as a woman — feminine forms of address are fine if they sound natural.';
   }
   if (gender === 'masculino') {
     return es
-      ? 'Quien consulta se identifica como hombre — podés usar adjetivos y vocativos en masculino si suena natural (por ejemplo "querido" está bien acá).'
+      ? 'Quien consulta se identifica como hombre — puedes usar adjetivos y vocativos en masculino si suena natural (por ejemplo "querido" está bien aquí).'
       : 'The person consulting identifies as a man — masculine forms of address are fine if they sound natural.';
   }
   return es
