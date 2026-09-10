@@ -404,38 +404,6 @@ function MarketplacePage({ lang, setRoute, profile }) {
   const [tarotists, setTarotists] = React.useState([]);
   const [settings, setSettings] = React.useState({ sessionBasePrice: 22, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 } });
 
-  const [active, setActive] = React.useState(null); // tarotista siendo agendada
-  const [slotId, setSlotId] = React.useState(null);
-  // 2026-09-09 (a pedido de Christian): el email de la reserva ya no es
-  // un campo de texto libre -- se toma SIEMPRE de la cuenta autenticada
-  // (profile.email), así nadie puede escribir el email de otra socia
-  // para pagar con su descuento (el backend además lo re-verifica: ver
-  // requireUserAuth en la acción "checkout"). El nombre sí se puede
-  // editar (es solo un dato de cortesía para la tarotista).
-  const [form, setForm] = React.useState({ name: profile.name || '', email: profile.email || '' });
-  const [bookError, setBookError] = React.useState('');
-  // Suscripción de la cuenta autenticada — se verifica en vivo contra
-  // PayPal (ver arcanaSubscriberStatus en src/data/booking.js).
-  const [subCheck, setSubCheck] = React.useState({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: '' });
-
-  const [confirmState, setConfirmState] = React.useState('idle'); // idle | confirming | paid | cancelled | error
-  const [confirmed, setConfirmed] = React.useState(null);
-
-  // El pago se hace con el botón de PayPal (JS SDK), montado dentro del
-  // modal de reserva — no hay redirect a otro sitio, se abre un popup de
-  // PayPal. El SDK se inyecta dinámicamente porque el client-id recién se
-  // conoce en runtime (viene del backend, ver load()).
-  const [paypalReady, setPaypalReady] = React.useState(false);
-  const [paypalSdkLoaded, setPaypalSdkLoaded] = React.useState(false);
-  const paypalClientIdRef = React.useRef('');
-  const paypalSdkLoadingRef = React.useRef(false);
-  const paypalButtonBoxRef = React.useRef(null);
-  const paypalRenderedForRef = React.useRef(null); // id de la tarotista para la que ya se montó el botón
-  // createOrder/onApprove del botón necesitan ver siempre el horario y el
-  // formulario más recientes sin tener que re-montar el botón en cada
-  // tecla — por eso viven en un ref en vez de en el closure del render.
-  const bookingCtxRef = React.useRef({ tarotistId: null, slotId: null, customerName: '', customerEmail: '', isSubscriber: false, lang });
-
   const load = React.useCallback(() => {
     setLoading(true);
     setLoadError(false);
@@ -443,8 +411,6 @@ function MarketplacePage({ lang, setRoute, profile }) {
       .then((data) => {
         setTarotists(data.tarotists || []);
         if (data.settings) setSettings(data.settings);
-        if (data.paypalClientId) paypalClientIdRef.current = data.paypalClientId;
-        setPaypalReady(!!data.paypalClientId);
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
@@ -452,147 +418,14 @@ function MarketplacePage({ lang, setRoute, profile }) {
 
   React.useEffect(() => { load(); }, [load]);
 
-  React.useEffect(() => {
-    bookingCtxRef.current = {
-      tarotistId: active ? active.id : null,
-      slotId,
-      customerName: form.name,
-      customerEmail: profile.email || '',
-      isSubscriber: subCheck.isSubscriber,
-      lang,
-    };
-  }, [active, slotId, form, lang, subCheck]);
-
-  // Verifica si la cuenta autenticada tiene una suscripción activa — ya
-  // no depende de lo que la visitante escriba, así nadie puede tipear el
-  // email de otra socia para ver/usar su descuento (el backend igual lo
-  // re-verifica del lado del servidor antes de cobrar).
-  React.useEffect(() => {
-    if (!profile.token) {
-      setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: '' });
-      return undefined;
-    }
-    let cancelled = false;
-    setSubCheck((s) => ({ ...s, checking: true }));
-    window.arcanaSubscriberStatus()
-      .then((res) => {
-        if (cancelled) return;
-        setSubCheck({
-          checking: false, isSubscriber: !!res.isSubscriber, planKey: res.planKey || null,
-          oraculoFreeSlotAvailable: !!res.oraculoFreeSlotAvailable, checkedEmail: profile.email || '',
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false, checkedEmail: profile.email || '' });
-      });
-    return () => { cancelled = true; };
-  }, [profile.token]);
-
-  React.useEffect(() => {
-    if (!paypalReady) return;
-    if (window.paypal) { setPaypalSdkLoaded(true); return; }
-    if (paypalSdkLoadingRef.current) return;
-    paypalSdkLoadingRef.current = true;
-    const s = document.createElement('script');
-    s.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(paypalClientIdRef.current) + '&currency=USD&intent=capture';
-    s.onload = () => setPaypalSdkLoaded(true);
-    s.onerror = () => setBookError(lang === 'es' ? 'No se pudo cargar PayPal.' : 'Could not load PayPal.');
-    document.body.appendChild(s);
-  }, [paypalReady]);
-
-  // Monta el botón real de PayPal dentro del modal cuando está todo listo.
-  // createOrder crea la orden en el backend (precio ya calculado ahí, nunca
-  // confiamos en el precio del navegador) y onApprove pide capturarla —
-  // recién en ese momento se mueve la plata de verdad.
-  React.useEffect(() => {
-    if (!active || !paypalSdkLoaded || !window.paypal || !paypalButtonBoxRef.current) return;
-    if (subCheck.oraculoFreeSlotAvailable) return; // esta sesión sale gratis, no hace falta botón de PayPal
-    const renderKey = active.id + ':' + subCheck.oraculoFreeSlotAvailable;
-    if (paypalRenderedForRef.current === renderKey) return;
-    paypalRenderedForRef.current = renderKey;
-    paypalButtonBoxRef.current.innerHTML = '';
-    window.paypal.Buttons({
-      style: { layout: 'vertical', color: 'gold', label: 'pay' },
-      createOrder: () => {
-        const ctx = bookingCtxRef.current;
-        if (!ctx.slotId || !profile.token) {
-          setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Elegí un horario primero.' : 'Choose a time first.'));
-          return Promise.reject(new Error('missing-fields'));
-        }
-        setBookError('');
-        return window.arcanaCreateCheckout({
-          tarotistId: ctx.tarotistId, slotId: ctx.slotId, customerName: ctx.customerName,
-          customerEmail: ctx.customerEmail, isSubscriber: ctx.isSubscriber, lang: ctx.lang,
-        }).then((res) => res.orderId);
-      },
-      onApprove: (data) => {
-        setActive(null);
-        setConfirmState('confirming');
-        return window.arcanaConfirmBooking(data.orderID)
-          .then((res) => {
-            if (res.status === 'paid') {
-              setConfirmed(res);
-              setConfirmState('paid');
-              load();
-            } else {
-              setConfirmState('error');
-            }
-          })
-          .catch(() => setConfirmState('error'));
-      },
-      onCancel: () => { setConfirmState('cancelled'); },
-      onError: () => {
-        setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Ocurrió un error con PayPal.' : 'Something went wrong with PayPal.'));
-      },
-    }).render(paypalButtonBoxRef.current);
-  }, [active, paypalSdkLoaded, subCheck.oraculoFreeSlotAvailable]);
-
-  const [freeBookingBusy, setFreeBookingBusy] = React.useState(false);
-  const bookFreeOraculoSlot = () => {
-    const ctx = bookingCtxRef.current;
-    if (!ctx.slotId || !profile.token) {
-      setBookError((t.market_book_error_prefix || '') + (lang === 'es' ? 'Elegí un horario primero.' : 'Choose a time first.'));
-      return;
-    }
-    setBookError('');
-    setFreeBookingBusy(true);
-    window.arcanaCheckoutFree({
-      tarotistId: ctx.tarotistId, slotId: ctx.slotId, customerName: ctx.customerName, customerEmail: ctx.customerEmail, lang: ctx.lang,
-    })
-      .then((res) => {
-        setActive(null);
-        setConfirmed(res);
-        setConfirmState('paid');
-        load();
-      })
-      .catch((e) => setBookError(e.message || (lang === 'es' ? 'No se pudo reservar la sesión gratis.' : 'Could not book the free session.')))
-      .finally(() => setFreeBookingBusy(false));
-  };
-
+  // 2026-09-10 (a pedido de Christian): "Reservar" ya no abre un popup de
+  // pago encima de la vitrina de tarotistas -- navega a una pantalla
+  // propia y dedicada (SessionCheckoutPage, más abajo en este archivo)
+  // con 2 pasos: elegir horario + ver qué incluye la sesión, y recién
+  // después el resumen comercial y el pago. Mismo criterio que ya se usa
+  // para "elegir un plan" en Planes.
   const openBooking = (tr) => {
-    setActive(tr);
-    setSlotId(null);
-    setForm({ name: profile.name || '', email: profile.email || '' });
-    setBookError('');
-  };
-  const closeBooking = () => { setActive(null); paypalRenderedForRef.current = null; };
-  const closeConfirm = () => { setConfirmState('idle'); setConfirmed(null); };
-
-  const basePrice = active ? (Number(active.rate) || settings.sessionBasePrice) : 0;
-  const discountPct = (subCheck.isSubscriber && subCheck.planKey && settings.planDiscounts) ? (settings.planDiscounts[subCheck.planKey] || 0) : 0;
-  const displayPrice = subCheck.oraculoFreeSlotAvailable
-    ? 0
-    : discountPct
-      ? Math.round(basePrice * (1 - discountPct / 100) * 100) / 100
-      : basePrice;
-
-  const formatSlot = (iso) => {
-    try {
-      return new Date(iso).toLocaleString(lang === 'es' ? 'es-CL' : 'en-US', {
-        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-      });
-    } catch { return iso; }
+    setRoute({ page: 'sessioncheckout', tarotistId: tr.id });
   };
 
   return (
@@ -689,189 +522,6 @@ function MarketplacePage({ lang, setRoute, profile }) {
           </div>
         </div>
       </div>
-
-      {/* Modal — Agendar */}
-      {active && (
-        <div className="modal-overlay" onClick={closeBooking}>
-          <div className="modal live-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={closeBooking}>✕</button>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>— {t.market_book_h} —</div>
-            <h2 className="live-modal-h">{active.name}</h2>
-
-            <div className="live-modal-block">
-              <div className="eyebrow" style={{ marginBottom: 10 }}>{t.market_book_choose_slot}</div>
-              {(!active.availability || active.availability.length === 0) ? (
-                <div className="live-pay-note italic">{t.market_book_no_slots}</div>
-              ) : (
-                <div className="live-slots">
-                  {active.availability.map((s) => (
-                    <button
-                      key={s.id}
-                      className={`live-slot-btn ${slotId === s.id ? 'is-active' : ''}`}
-                      onClick={() => setSlotId(s.id)}
-                    >{formatSlot(s.startsAt)}</button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="live-modal-block">
-              <div className="form-field">
-                <label>{t.market_book_name}</label>
-                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-              </div>
-              <div className="form-field">
-                <label>{t.market_book_email}</label>
-                <input type="email" value={form.email} readOnly disabled title={lang === 'es' ? 'Es el email de tu cuenta.' : 'This is your account email.'} />
-              </div>
-              {!!profile.token && (
-                <div className="live-subscriber-check">
-                  {subCheck.checking
-                    ? (lang === 'es' ? 'Verificando suscripción…' : 'Checking subscription…')
-                    : subCheck.oraculoFreeSlotAvailable
-                      ? (lang === 'es' ? '✦ Suscripción Oráculo — tu sesión gratis de este mes está disponible' : '✦ Oráculo subscription — your free session this month is available')
-                      : subCheck.isSubscriber
-                        ? (lang === 'es' ? `✦ Suscripción activa (${subCheck.planKey}) — ${discountPct}% de descuento aplicado` : `✦ Active subscription (${subCheck.planKey}) — ${discountPct}% discount applied`)
-                        : (lang === 'es' ? 'Sin suscripción activa con este email.' : 'No active subscription with this email.')}
-                </div>
-              )}
-              <div className="live-pay-note italic">{t.market_book_subscriber_note}</div>
-            </div>
-
-            <div className="live-total">
-              <div className="eyebrow">{t.market_book_total}</div>
-              <div className="live-total-v">
-                <span className="live-rate-currency">$</span>
-                <span className="live-total-num">{displayPrice}</span>
-                <span className="live-rate-unit">USD</span>
-              </div>
-            </div>
-
-            {bookError && <div className="live-pay-note italic" style={{ color: '#e08080' }}>{bookError}</div>}
-
-            {(!slotId || !profile.token) && (
-              <div className="live-pay-note italic">{t.market_book_pay_hint}</div>
-            )}
-
-            {subCheck.oraculoFreeSlotAvailable ? (
-              <button className="btn btn-primary btn-lg" style={{ width: '100%' }} disabled={freeBookingBusy || !slotId} onClick={bookFreeOraculoSlot}>
-                {freeBookingBusy
-                  ? (lang === 'es' ? 'Reservando…' : 'Booking…')
-                  : (lang === 'es' ? 'Reservar gratis (incluida en tu plan)' : 'Book for free (included in your plan)')}
-              </button>
-            ) : (
-              <>
-                {!paypalSdkLoaded && <div className="live-pay-note italic">{t.market_book_processing}</div>}
-                <div ref={paypalButtonBoxRef} className="live-paypal-box" />
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Confirmando el pago (capturando la orden contra la API de PayPal) */}
-      {confirmState === 'confirming' && (
-        <div className="modal-overlay">
-          <div className="modal live-modal live-paying" onClick={(e) => e.stopPropagation()}>
-            <div className="live-paying-spinner">
-              <span /><span /><span /><span /><span /><span /><span /><span />
-            </div>
-            <div className="eyebrow" style={{ color: 'var(--gold)' }}>{t.market_confirming}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Pago cancelado */}
-      {confirmState === 'cancelled' && (
-        <div className="modal-overlay" onClick={closeConfirm}>
-          <div className="modal live-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={closeConfirm}>✕</button>
-            <p className="italic" style={{ marginTop: 20 }}>{t.market_cancel_notice}</p>
-          </div>
-        </div>
-      )}
-
-      {/* No se pudo confirmar */}
-      {confirmState === 'error' && (
-        <div className="modal-overlay" onClick={closeConfirm}>
-          <div className="modal live-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={closeConfirm}>✕</button>
-            <p className="italic" style={{ marginTop: 20 }}>{t.market_load_error}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Modal — Confirmación */}
-      {confirmState === 'paid' && confirmed && (
-        <div className="modal-overlay">
-          <div className="modal live-modal live-paid" onClick={(e) => e.stopPropagation()}>
-            <div className="live-paid-icon">✦</div>
-            <div className="eyebrow" style={{ color: 'var(--gold)', marginBottom: 8 }}>— {t.market_paid_h} —</div>
-            <h2 className="live-modal-h">{t.market_paid_sub}</h2>
-
-            <div className="live-paid-when">
-              <div className="eyebrow">{t.market_paid_when}</div>
-              <div className="live-paid-when-v">{confirmed.when ? formatSlot(confirmed.when) : ''}</div>
-            </div>
-
-            <div className="live-code-block user">
-              <div className="eyebrow" style={{ color: 'var(--gold)', marginBottom: 8 }}>{t.market_paid_your_code}</div>
-              <div className="live-code-row">
-                <div className="live-code">{confirmed.accessCode}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gap: 10, marginTop: 24 }}>
-              {(() => {
-                const joinFrom = confirmed.videoJoinFrom ? new Date(confirmed.videoJoinFrom).getTime() : 0;
-                const canJoinNow = !joinFrom || Date.now() >= joinFrom;
-                if (confirmed.videoRoomUrl && canJoinNow) {
-                  return (
-                    <button
-                      className="btn btn-primary btn-lg"
-                      style={{ width: '100%' }}
-                      onClick={() => { closeConfirm(); setRoute && setRoute({ page: 'videocall', accessCode: confirmed.accessCode }); }}
-                    >
-                      {t.market_paid_enter} →
-                    </button>
-                  );
-                }
-                if (confirmed.videoRoomUrl && !canJoinNow) {
-                  return <div className="live-code-note italic">{t.market_paid_too_early}</div>;
-                }
-                if (confirmed.meetingLink) {
-                  return (
-                    <a
-                      className="btn btn-primary btn-lg"
-                      style={{ width: '100%', textAlign: 'center', textDecoration: 'none' }}
-                      href={confirmed.meetingLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {t.market_paid_enter} →
-                    </a>
-                  );
-                }
-                return <div className="live-code-note italic">{t.market_paid_join_fallback}</div>;
-              })()}
-              <button
-                className="btn btn-ghost"
-                style={{ width: '100%' }}
-                onClick={() => { closeConfirm(); setRoute && setRoute({ page: 'mybookings' }); }}
-              >
-                {t.market_paid_view_bookings}
-              </button>
-              <button
-                className="btn btn-ghost"
-                style={{ width: '100%' }}
-                onClick={() => { closeConfirm(); setRoute && setRoute({ page: 'home' }); }}
-              >
-                {t.market_paid_later}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <style>{`
         .market-page-live { max-width: 1100px; }
@@ -1029,148 +679,6 @@ function MarketplacePage({ lang, setRoute, profile }) {
           text-wrap: pretty;
         }
 
-        /* Modales */
-        .live-modal { max-width: 520px; padding: 38px 40px; }
-        .live-modal-h {
-          font-family: 'Cinzel', serif;
-          font-size: 24px;
-          letter-spacing: 0.06em;
-          font-weight: 400;
-          margin-bottom: 24px;
-        }
-        .live-modal-block { margin-bottom: 26px; }
-        .live-slots { display: flex; flex-wrap: wrap; gap: 8px; }
-        .live-day-btn, .live-slot-btn, .live-method-btn {
-          background: transparent;
-          border: 1px solid var(--line);
-          color: var(--ink-soft);
-          padding: 10px 16px;
-          border-radius: 30px;
-          font-family: 'Cinzel', serif;
-          font-size: 11px;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          cursor: pointer;
-          transition: border-color 0.2s, color 0.2s, background 0.2s;
-        }
-        .live-day-btn.is-active, .live-slot-btn.is-active, .live-method-btn.is-active {
-          border-color: var(--gold);
-          color: var(--gold);
-          background: rgba(212, 168, 90, 0.08);
-        }
-        .live-subscriber-check {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          font-size: 14px;
-          color: var(--ink-soft);
-          margin-top: 16px;
-          cursor: pointer;
-        }
-        .live-pay-note {
-          margin-top: 10px;
-          font-size: 13px;
-          color: var(--ink-mute);
-        }
-        .live-total {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 18px 0;
-          border-top: 1px dashed var(--line);
-          border-bottom: 1px dashed var(--line);
-          margin-bottom: 22px;
-        }
-        .live-total-v { display: flex; align-items: baseline; }
-        .live-total-num { font-family: 'Cinzel', serif; font-size: 30px; color: var(--gold); margin: 0 4px; }
-        .live-paypal-box { min-height: 45px; margin-top: 4px; }
-
-        /* Procesando */
-        .live-paying {
-          text-align: center;
-          padding: 60px 40px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 20px;
-        }
-        .live-paying-spinner {
-          position: relative;
-          width: 40px;
-          height: 40px;
-        }
-        .live-paying-spinner span {
-          position: absolute;
-          left: 50%; top: 0;
-          width: 3px;
-          height: 8px;
-          background: var(--gold);
-          border-radius: 2px;
-          transform-origin: center 20px;
-          opacity: 0.3;
-          animation: liveSpin 1s linear infinite;
-        }
-        .live-paying-spinner span:nth-child(1) { transform: rotate(0deg); animation-delay: -0.875s; }
-        .live-paying-spinner span:nth-child(2) { transform: rotate(45deg); animation-delay: -0.75s; }
-        .live-paying-spinner span:nth-child(3) { transform: rotate(90deg); animation-delay: -0.625s; }
-        .live-paying-spinner span:nth-child(4) { transform: rotate(135deg); animation-delay: -0.5s; }
-        .live-paying-spinner span:nth-child(5) { transform: rotate(180deg); animation-delay: -0.375s; }
-        .live-paying-spinner span:nth-child(6) { transform: rotate(225deg); animation-delay: -0.25s; }
-        .live-paying-spinner span:nth-child(7) { transform: rotate(270deg); animation-delay: -0.125s; }
-        .live-paying-spinner span:nth-child(8) { transform: rotate(315deg); animation-delay: 0s; }
-        @keyframes liveSpin { 0% { opacity: 1; } 100% { opacity: 0.15; } }
-
-        /* Pagado */
-        .live-paid { padding: 40px 40px; max-width: 560px; }
-        .live-paid-icon {
-          font-family: 'Cinzel', serif;
-          font-size: 30px;
-          color: var(--gold);
-          text-align: center;
-          margin-bottom: 8px;
-        }
-        .live-paid-when {
-          text-align: center;
-          padding: 18px 0;
-          border-top: 1px dashed var(--line);
-          border-bottom: 1px dashed var(--line);
-          margin: 20px 0 26px;
-        }
-        .live-paid-when-v {
-          font-family: 'Cinzel', serif;
-          font-size: 18px;
-          letter-spacing: 0.1em;
-          color: var(--ink);
-          margin-top: 6px;
-        }
-        .live-code-block {
-          padding: 18px 20px;
-          border: 1px solid var(--line);
-          border-radius: 12px;
-          margin-bottom: 14px;
-          background: rgba(15, 10, 36, 0.4);
-        }
-        .live-code-block.user { border-color: var(--gold); background: rgba(212, 168, 90, 0.06); }
-        .live-code-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          justify-content: space-between;
-        }
-        .live-code {
-          font-family: 'Cinzel', serif;
-          font-size: 26px;
-          letter-spacing: 0.12em;
-          color: var(--gold);
-          user-select: all;
-        }
-        .live-code-note {
-          margin-top: 8px;
-          font-size: 13px;
-          color: var(--ink-mute);
-          text-wrap: pretty;
-        }
-
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
         /* Responsive */
@@ -1181,9 +689,6 @@ function MarketplacePage({ lang, setRoute, profile }) {
           .live-cta-row { flex-direction: column; }
           .live-orb { width: 140px; height: 140px; font-size: 42px; }
           .live-how-steps { grid-template-columns: 1fr; }
-          .live-modal { padding: 28px 22px; }
-          .live-slots { justify-content: flex-start; }
-          .live-code { font-size: 20px; }
         }
       `}</style>
     </div>
@@ -3048,6 +2553,265 @@ function buildPlanCards(t) {
   ];
 }
 
+// CSS compartida por las pantallas de checkout (planes y sesiones) --
+// un solo lugar para el look de "pantalla dedicada, no popup" que pidió
+// Christian, en vez de duplicar el mismo bloque en cada componente.
+const CHECKOUT_STYLES = `
+
+        .checkout-page {
+          min-height: 100vh;
+          display: flex;
+          justify-content: center;
+          padding: 48px 16px 64px;
+          background: radial-gradient(circle at 50% 0%, rgba(212,168,90,.08), transparent 60%);
+        }
+        .checkout-card {
+          max-width: 640px;
+          width: 100%;
+        }
+        .checkout-exit {
+          background: transparent;
+          border: none;
+          color: var(--ink-soft);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          cursor: pointer;
+          padding: 6px 0;
+          margin-bottom: 24px;
+        }
+        .checkout-exit:hover { color: var(--gold); }
+
+        .checkout-steps {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          margin-bottom: 32px;
+        }
+        .checkout-step { display: flex; align-items: center; gap: 8px; opacity: 0.5; }
+        .checkout-step.is-active, .checkout-step.is-done { opacity: 1; }
+        .checkout-step-dot {
+          width: 24px; height: 24px;
+          border-radius: 50%;
+          border: 1px solid var(--line-strong);
+          display: flex; align-items: center; justify-content: center;
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          color: var(--ink-soft);
+        }
+        .checkout-step.is-active .checkout-step-dot { border-color: var(--gold); color: var(--gold); }
+        .checkout-step.is-done .checkout-step-dot { background: var(--gold); border-color: var(--gold); color: var(--bg); }
+        .checkout-step-label {
+          font-family: 'Cinzel', serif;
+          font-size: 10px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--ink-soft);
+        }
+        .checkout-step.is-active .checkout-step-label { color: var(--ink); }
+        .checkout-step:not(:last-child)::after {
+          content: '';
+          width: 20px;
+          height: 1px;
+          background: var(--line);
+          margin-left: 6px;
+        }
+
+        .checkout-hero {
+          position: relative;
+          overflow: hidden;
+          border-radius: 20px;
+          border: 1px solid var(--line);
+          padding: 56px 32px;
+          text-align: center;
+          background-size: cover;
+          background-position: center;
+          isolation: isolate;
+        }
+        .checkout-hero-overlay {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(circle at 50% 40%, rgba(15,10,36,0.55), rgba(15,10,36,0.92) 75%),
+            rgba(15,10,36,0.55);
+          z-index: -1;
+        }
+        .checkout-h {
+          font-family: 'Cinzel', serif;
+          font-size: clamp(30px, 4vw, 40px);
+          font-weight: 400;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          margin: 10px 0 6px;
+        }
+        .checkout-tag { color: var(--ink-soft); font-size: 16px; }
+
+        .checkout-body { margin-top: 28px; }
+        .checkout-hero + .checkout-body { margin-top: 24px; }
+        .checkout-h2 {
+          font-family: 'Cinzel', serif;
+          font-size: clamp(24px, 3vw, 30px);
+          font-weight: 400;
+          margin-bottom: 8px;
+        }
+        .checkout-sub { color: var(--ink-soft); font-size: 16px; margin-bottom: 24px; }
+        .checkout-lead {
+          font-family: 'Cormorant Garamond', serif;
+          font-size: 19px;
+          line-height: 1.6;
+          color: var(--ink);
+          margin-bottom: 20px;
+        }
+        .checkout-features {
+          list-style: none;
+          padding: 20px 0;
+          margin: 0 0 20px;
+          border-top: 1px solid var(--line);
+          border-bottom: 1px solid var(--line);
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .checkout-features li {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          font-family: 'Cormorant Garamond', serif;
+          font-size: 16px;
+          color: var(--ink);
+        }
+        .checkout-features .cf-check { color: var(--gold); font-size: 12px; line-height: 1.7; flex-shrink: 0; }
+        .checkout-features li.is-highlight {
+          margin: 0 -14px;
+          padding: 10px 14px;
+          background: linear-gradient(90deg, rgba(212,168,90,0.16), rgba(212,168,90,0.04));
+          border: 1px solid rgba(212,168,90,0.4);
+          border-radius: 10px;
+          color: var(--gold);
+        }
+        .checkout-features li.is-highlight span:last-child { font-weight: 600; }
+        .checkout-trust { color: var(--ink-mute); font-size: 14px; margin-bottom: 26px; }
+        .checkout-cta { width: 100%; }
+
+        .checkout-billing {
+          display: inline-flex;
+          gap: 4px;
+          padding: 5px;
+          border: 1px solid var(--line);
+          border-radius: 999px;
+          background: rgba(26, 20, 56, 0.4);
+          margin-bottom: 24px;
+        }
+        .checkout-bt-opt {
+          background: transparent;
+          border: none;
+          color: var(--ink-soft);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          padding: 9px 18px;
+          border-radius: 999px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .checkout-bt-opt.is-active { background: var(--gold); color: var(--bg); }
+        .checkout-bt-save { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 11px; opacity: .85; text-transform: none; }
+
+        .checkout-price-block {
+          padding: 24px;
+          border: 1px solid var(--line);
+          border-radius: 16px;
+          background: rgba(26, 20, 56, 0.35);
+          margin-bottom: 24px;
+        }
+        .checkout-price { display: flex; align-items: baseline; gap: 4px; }
+        .cp-currency { font-family: 'Cinzel', serif; font-size: 20px; color: var(--gold); }
+        .cp-big { font-family: 'Cinzel', serif; font-size: 44px; font-weight: 500; color: var(--gold); line-height: 1; }
+        .cp-unit { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--ink-soft); margin-left: 4px; }
+        .checkout-price-note { margin-top: 12px; font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
+
+        .checkout-switch { margin-bottom: 28px; }
+        .checkout-switch-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .checkout-switch-btn {
+          background: transparent;
+          border: 1px solid var(--line);
+          color: var(--ink-soft);
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          padding: 10px 16px;
+          border-radius: 10px;
+          cursor: pointer;
+        }
+        .checkout-switch-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+        .checkout-summary {
+          border: 1px solid var(--line);
+          border-radius: 16px;
+          padding: 18px 22px;
+          margin-bottom: 22px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .checkout-summary div { display: flex; justify-content: space-between; font-size: 15px; }
+        .checkout-summary span { color: var(--ink-soft); }
+        .checkout-summary strong { color: var(--ink); font-weight: 500; }
+
+        .checkout-policies {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          font-size: 14px;
+          color: var(--ink-soft);
+          cursor: pointer;
+          margin-bottom: 18px;
+        }
+        .checkout-policies input { margin-top: 3px; }
+        .checkout-policies-link {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--gold);
+          text-decoration: underline;
+          cursor: pointer;
+          font-size: inherit;
+          font-family: inherit;
+        }
+        .checkout-paypal-locked {
+          text-align: center;
+          padding: 20px;
+          border: 1px dashed var(--line);
+          border-radius: 12px;
+          color: var(--ink-mute);
+          font-size: 14px;
+        }
+        .live-pay-note {
+          margin-top: 10px;
+          font-size: 13px;
+          color: var(--ink-mute);
+        }
+        .live-paypal-box { min-height: 45px; margin-top: 10px; }
+
+        .checkout-nav-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 24px;
+          gap: 12px;
+        }
+
+        @media (max-width: 560px) {
+          .checkout-hero { padding: 40px 20px; }
+          .checkout-nav-row { flex-direction: column-reverse; align-items: stretch; }
+        }
+`;
+
 function PricingPage({ lang, setRoute, profile }) {
   const t = window.I18N[lang];
   const go = (page) => { if (typeof setRoute === 'function') setRoute({ page }); };
@@ -4061,260 +3825,575 @@ function PlanCheckoutPage({ lang, setRoute, profile, planKey: routePlanKey, bill
         </div>
       )}
 
-      <style>{`
-        .checkout-page {
-          min-height: 100vh;
-          display: flex;
-          justify-content: center;
-          padding: 48px 16px 64px;
-          background: radial-gradient(circle at 50% 0%, rgba(212,168,90,.08), transparent 60%);
-        }
-        .checkout-card {
-          max-width: 640px;
-          width: 100%;
-        }
-        .checkout-exit {
-          background: transparent;
-          border: none;
-          color: var(--ink-soft);
-          font-family: 'Cinzel', serif;
-          font-size: 11px;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          cursor: pointer;
-          padding: 6px 0;
-          margin-bottom: 24px;
-        }
-        .checkout-exit:hover { color: var(--gold); }
+      <style>{CHECKOUT_STYLES}</style>
+    </div>
+  );
+}
 
-        .checkout-steps {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          margin-bottom: 32px;
-        }
-        .checkout-step { display: flex; align-items: center; gap: 8px; opacity: 0.5; }
-        .checkout-step.is-active, .checkout-step.is-done { opacity: 1; }
-        .checkout-step-dot {
-          width: 24px; height: 24px;
-          border-radius: 50%;
-          border: 1px solid var(--line-strong);
-          display: flex; align-items: center; justify-content: center;
-          font-family: 'Cinzel', serif;
-          font-size: 11px;
-          color: var(--ink-soft);
-        }
-        .checkout-step.is-active .checkout-step-dot { border-color: var(--gold); color: var(--gold); }
-        .checkout-step.is-done .checkout-step-dot { background: var(--gold); border-color: var(--gold); color: var(--bg); }
-        .checkout-step-label {
-          font-family: 'Cinzel', serif;
-          font-size: 10px;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: var(--ink-soft);
-        }
-        .checkout-step.is-active .checkout-step-label { color: var(--ink); }
-        .checkout-step:not(:last-child)::after {
-          content: '';
-          width: 20px;
-          height: 1px;
-          background: var(--line);
-          margin-left: 6px;
-        }
+// CSS propio de SessionCheckoutPage -- el orbe de la tarotista, los
+// horarios disponibles, y las pantallas de "procesando"/"pagado" que
+// antes vivían en el modal de reserva de MarketplacePage. El resto del
+// look (cabecera de pasos, hero, features, resumen, políticas) viene de
+// CHECKOUT_STYLES, compartido con el checkout de planes.
+const SESSION_EXTRA_STYLES = `
+  .session-orb {
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Cinzel', serif;
+    font-size: 30px;
+    letter-spacing: 0.1em;
+    color: var(--bg);
+    margin: 0 auto 16px;
+    border: 1px solid rgba(255,255,255,0.15);
+    box-shadow: 0 0 40px rgba(212, 168, 90, 0.22);
+  }
+  .live-slots { display: flex; flex-wrap: wrap; gap: 8px; }
+  .live-slot-btn {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    padding: 10px 16px;
+    border-radius: 30px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+  .live-slot-btn.is-active {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: rgba(212, 168, 90, 0.08);
+  }
 
-        .checkout-hero {
-          position: relative;
-          overflow: hidden;
-          border-radius: 20px;
-          border: 1px solid var(--line);
-          padding: 56px 32px;
-          text-align: center;
-          background-size: cover;
-          background-position: center;
-          isolation: isolate;
-        }
-        .checkout-hero-overlay {
-          position: absolute;
-          inset: 0;
-          background:
-            radial-gradient(circle at 50% 40%, rgba(15,10,36,0.55), rgba(15,10,36,0.92) 75%),
-            rgba(15,10,36,0.55);
-          z-index: -1;
-        }
-        .checkout-h {
-          font-family: 'Cinzel', serif;
-          font-size: clamp(30px, 4vw, 40px);
-          font-weight: 400;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          margin: 10px 0 6px;
-        }
-        .checkout-tag { color: var(--ink-soft); font-size: 16px; }
+  .session-paying {
+    text-align: center;
+    padding: 60px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  .session-paying-spinner { position: relative; width: 40px; height: 40px; }
+  .session-paying-spinner span {
+    position: absolute;
+    left: 50%; top: 0;
+    width: 3px;
+    height: 8px;
+    background: var(--gold);
+    border-radius: 2px;
+    transform-origin: center 20px;
+    opacity: 0.3;
+    animation: sessionSpin 1s linear infinite;
+  }
+  .session-paying-spinner span:nth-child(1) { transform: rotate(0deg); animation-delay: -0.875s; }
+  .session-paying-spinner span:nth-child(2) { transform: rotate(45deg); animation-delay: -0.75s; }
+  .session-paying-spinner span:nth-child(3) { transform: rotate(90deg); animation-delay: -0.625s; }
+  .session-paying-spinner span:nth-child(4) { transform: rotate(135deg); animation-delay: -0.5s; }
+  .session-paying-spinner span:nth-child(5) { transform: rotate(180deg); animation-delay: -0.375s; }
+  .session-paying-spinner span:nth-child(6) { transform: rotate(225deg); animation-delay: -0.25s; }
+  .session-paying-spinner span:nth-child(7) { transform: rotate(270deg); animation-delay: -0.125s; }
+  .session-paying-spinner span:nth-child(8) { transform: rotate(315deg); animation-delay: 0s; }
+  @keyframes sessionSpin { 0% { opacity: 1; } 100% { opacity: 0.15; } }
 
-        .checkout-body { margin-top: 28px; }
-        .checkout-hero + .checkout-body { margin-top: 24px; }
-        .checkout-h2 {
-          font-family: 'Cinzel', serif;
-          font-size: clamp(24px, 3vw, 30px);
-          font-weight: 400;
-          margin-bottom: 8px;
-        }
-        .checkout-sub { color: var(--ink-soft); font-size: 16px; margin-bottom: 24px; }
-        .checkout-lead {
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 19px;
-          line-height: 1.6;
-          color: var(--ink);
-          margin-bottom: 20px;
-        }
-        .checkout-features {
-          list-style: none;
-          padding: 20px 0;
-          margin: 0 0 20px;
-          border-top: 1px solid var(--line);
-          border-bottom: 1px solid var(--line);
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .checkout-features li {
-          display: flex;
-          gap: 12px;
-          align-items: flex-start;
-          font-family: 'Cormorant Garamond', serif;
-          font-size: 16px;
-          color: var(--ink);
-        }
-        .checkout-features .cf-check { color: var(--gold); font-size: 12px; line-height: 1.7; flex-shrink: 0; }
-        .checkout-features li.is-highlight {
-          margin: 0 -14px;
-          padding: 10px 14px;
-          background: linear-gradient(90deg, rgba(212,168,90,0.16), rgba(212,168,90,0.04));
-          border: 1px solid rgba(212,168,90,0.4);
-          border-radius: 10px;
-          color: var(--gold);
-        }
-        .checkout-features li.is-highlight span:last-child { font-weight: 600; }
-        .checkout-trust { color: var(--ink-mute); font-size: 14px; margin-bottom: 26px; }
-        .checkout-cta { width: 100%; }
+  .session-paid-icon {
+    font-family: 'Cinzel', serif;
+    font-size: 30px;
+    color: var(--gold);
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .session-paid-when {
+    text-align: center;
+    padding: 18px 0;
+    border-top: 1px dashed var(--line);
+    border-bottom: 1px dashed var(--line);
+    margin: 20px 0 26px;
+  }
+  .session-paid-when-v {
+    font-family: 'Cinzel', serif;
+    font-size: 18px;
+    letter-spacing: 0.1em;
+    color: var(--ink);
+    margin-top: 6px;
+  }
+  .session-code-block {
+    padding: 18px 20px;
+    border: 1px solid var(--gold);
+    border-radius: 12px;
+    margin-bottom: 14px;
+    background: rgba(212, 168, 90, 0.06);
+    text-align: center;
+  }
+  .session-code {
+    font-family: 'Cinzel', serif;
+    font-size: 26px;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+    user-select: all;
+  }
+  .session-code-note {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--ink-mute);
+    text-wrap: pretty;
+  }
+`;
 
-        .checkout-billing {
-          display: inline-flex;
-          gap: 4px;
-          padding: 5px;
-          border: 1px solid var(--line);
-          border-radius: 999px;
-          background: rgba(26, 20, 56, 0.4);
-          margin-bottom: 24px;
-        }
-        .checkout-bt-opt {
-          background: transparent;
-          border: none;
-          color: var(--ink-soft);
-          font-family: 'Cinzel', serif;
-          font-size: 11px;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          padding: 9px 18px;
-          border-radius: 999px;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .checkout-bt-opt.is-active { background: var(--gold); color: var(--bg); }
-        .checkout-bt-save { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 11px; opacity: .85; text-transform: none; }
+// Reserva de una sesión en vivo con una tarotista, en 2 pantallas propias
+// antes del pago -- mismo contexto visual que el checkout de planes.
+// 2026-09-10 (a pedido de Christian): "ahora hay que hacer lo mismo para
+// el pago de las sesiones. Dos pantallas, en el mismo contexto de los
+// planes, antes del pago." Pantalla 1: quién es la tarotista, qué incluye
+// la sesión (mismos beneficios que ya se muestran en Planes) y el
+// horario. Pantalla 2: el resumen comercial completo y recién ahí el
+// pago -- con el mismo candado de "Políticas de Lux Astral" que el
+// checkout de planes.
+function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
+  const t = window.I18N[lang];
+  const es = lang === 'es';
 
-        .checkout-price-block {
-          padding: 24px;
-          border: 1px solid var(--line);
-          border-radius: 16px;
-          background: rgba(26, 20, 56, 0.35);
-          margin-bottom: 24px;
-        }
-        .checkout-price { display: flex; align-items: baseline; gap: 4px; }
-        .cp-currency { font-family: 'Cinzel', serif; font-size: 20px; color: var(--gold); }
-        .cp-big { font-family: 'Cinzel', serif; font-size: 44px; font-weight: 500; color: var(--gold); line-height: 1; }
-        .cp-unit { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--ink-soft); margin-left: 4px; }
-        .checkout-price-note { margin-top: 12px; font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
+  const [phase, setPhase] = React.useState('booking'); // booking | confirming | cancelled | error | paid
+  const [step, setStep] = React.useState('intro'); // intro | payment (solo durante "booking")
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
+  const [tarotist, setTarotist] = React.useState(null);
+  const [settings, setSettings] = React.useState({ sessionBasePrice: 29, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 } });
+  const [slotId, setSlotId] = React.useState(null);
+  const [form, setForm] = React.useState({ name: profile.name || '' });
+  const [bookError, setBookError] = React.useState('');
+  const [policiesAccepted, setPoliciesAccepted] = React.useState(false);
+  const [policiesOpen, setPoliciesOpen] = React.useState(false);
+  const [subCheck, setSubCheck] = React.useState({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false });
+  const [confirmed, setConfirmed] = React.useState(null);
+  const [freeBookingBusy, setFreeBookingBusy] = React.useState(false);
 
-        .checkout-switch { margin-bottom: 28px; }
-        .checkout-switch-row { display: flex; gap: 10px; flex-wrap: wrap; }
-        .checkout-switch-btn {
-          background: transparent;
-          border: 1px solid var(--line);
-          color: var(--ink-soft);
-          font-family: 'Cinzel', serif;
-          font-size: 11px;
-          letter-spacing: 0.08em;
-          padding: 10px 16px;
-          border-radius: 10px;
-          cursor: pointer;
-        }
-        .checkout-switch-btn:hover { border-color: var(--gold); color: var(--gold); }
+  const paypalClientIdRef = React.useRef('');
+  const [paypalSdkLoaded, setPaypalSdkLoaded] = React.useState(false);
+  const paypalSdkLoadingRef = React.useRef(false);
+  const paypalButtonBoxRef = React.useRef(null);
+  const paypalRenderedForRef = React.useRef(null);
+  const bookingCtxRef = React.useRef({ tarotistId: null, slotId: null, customerName: '', customerEmail: '', isSubscriber: false, lang });
 
-        .checkout-summary {
-          border: 1px solid var(--line);
-          border-radius: 16px;
-          padding: 18px 22px;
-          margin-bottom: 22px;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-        .checkout-summary div { display: flex; justify-content: space-between; font-size: 15px; }
-        .checkout-summary span { color: var(--ink-soft); }
-        .checkout-summary strong { color: var(--ink); font-weight: 500; }
+  React.useEffect(() => {
+    if (!tarotistId) { setRoute({ page: 'marketplace' }); return; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-        .checkout-policies {
-          display: flex;
-          gap: 10px;
-          align-items: flex-start;
-          font-size: 14px;
-          color: var(--ink-soft);
-          cursor: pointer;
-          margin-bottom: 18px;
-        }
-        .checkout-policies input { margin-top: 3px; }
-        .checkout-policies-link {
-          background: none;
-          border: none;
-          padding: 0;
-          color: var(--gold);
-          text-decoration: underline;
-          cursor: pointer;
-          font-size: inherit;
-          font-family: inherit;
-        }
-        .checkout-paypal-locked {
-          text-align: center;
-          padding: 20px;
-          border: 1px dashed var(--line);
-          border-radius: 12px;
-          color: var(--ink-mute);
-          font-size: 14px;
-        }
-        .live-pay-note {
-          margin-top: 10px;
-          font-size: 13px;
-          color: var(--ink-mute);
-        }
-        .live-paypal-box { min-height: 45px; margin-top: 10px; }
+  React.useEffect(() => {
+    if (!tarotistId) return;
+    setLoading(true);
+    setLoadError(false);
+    window.arcanaFetchTarotistas()
+      .then((data) => {
+        const tr = (data.tarotists || []).find((x) => x.id === tarotistId);
+        if (!tr) { setLoadError(true); return; }
+        setTarotist(tr);
+        if (data.settings) setSettings(data.settings);
+        if (data.paypalClientId) paypalClientIdRef.current = data.paypalClientId;
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, [tarotistId]);
 
-        .checkout-nav-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 24px;
-          gap: 12px;
-        }
+  React.useEffect(() => {
+    if (!profile.token) {
+      setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false });
+      return undefined;
+    }
+    let cancelled = false;
+    setSubCheck((s) => ({ ...s, checking: true }));
+    window.arcanaSubscriberStatus()
+      .then((res) => {
+        if (cancelled) return;
+        setSubCheck({
+          checking: false, isSubscriber: !!res.isSubscriber, planKey: res.planKey || null,
+          oraculoFreeSlotAvailable: !!res.oraculoFreeSlotAvailable,
+        });
+      })
+      .catch(() => { if (!cancelled) setSubCheck({ checking: false, isSubscriber: false, planKey: null, oraculoFreeSlotAvailable: false }); });
+    return () => { cancelled = true; };
+  }, [profile.token]);
 
-        @media (max-width: 560px) {
-          .checkout-hero { padding: 40px 20px; }
-          .checkout-nav-row { flex-direction: column-reverse; align-items: stretch; }
+  React.useEffect(() => {
+    bookingCtxRef.current = {
+      tarotistId: tarotist ? tarotist.id : null,
+      slotId,
+      customerName: form.name,
+      customerEmail: profile.email || '',
+      isSubscriber: subCheck.isSubscriber,
+      lang,
+    };
+  }, [tarotist, slotId, form, lang, subCheck]);
+
+  // El SDK de PayPal (intent=capture, distinto del intent=subscription que
+  // usa el checkout de planes) recién se carga al llegar al paso de pago.
+  React.useEffect(() => {
+    if (step !== 'payment' || phase !== 'booking') return undefined;
+    if (!paypalClientIdRef.current) return undefined;
+    if (window.paypal && window.__arcanaPaypalSdkKind === 'capture') { setPaypalSdkLoaded(true); return undefined; }
+    if (paypalSdkLoadingRef.current) return undefined;
+    paypalSdkLoadingRef.current = true;
+    const s = document.createElement('script');
+    s.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(paypalClientIdRef.current) + '&currency=USD&intent=capture';
+    s.onload = () => { window.__arcanaPaypalSdkKind = 'capture'; paypalSdkLoadingRef.current = false; setPaypalSdkLoaded(true); };
+    s.onerror = () => { paypalSdkLoadingRef.current = false; setBookError(es ? 'No se pudo cargar PayPal.' : 'Could not load PayPal.'); };
+    document.body.appendChild(s);
+    return undefined;
+  }, [step, phase]);
+
+  // Mismo cuidado que en PlanCheckoutPage: el cuadro del botón se
+  // desmonta al salir del paso de pago o al destildar las políticas
+  // (renders condicionales, no display:none) -- hay que limpiar la marca
+  // para que vuelva a dibujarse al remontarse.
+  React.useEffect(() => {
+    if (step !== 'payment' || !policiesAccepted) paypalRenderedForRef.current = null;
+  }, [step, policiesAccepted]);
+
+  React.useEffect(() => {
+    if (step !== 'payment' || !policiesAccepted || !paypalSdkLoaded || !window.paypal || !paypalButtonBoxRef.current) return;
+    if (subCheck.oraculoFreeSlotAvailable) return; // esta sesión sale gratis, no hace falta botón de PayPal
+    const renderKey = (tarotist ? tarotist.id : '') + ':' + slotId;
+    if (paypalRenderedForRef.current === renderKey) return;
+    paypalRenderedForRef.current = renderKey;
+    paypalButtonBoxRef.current.innerHTML = '';
+    window.paypal.Buttons({
+      style: { layout: 'vertical', color: 'gold', label: 'pay' },
+      createOrder: () => {
+        const ctx = bookingCtxRef.current;
+        if (!ctx.slotId || !profile.token) {
+          setBookError(es ? 'Elegí un horario primero.' : 'Choose a time first.');
+          return Promise.reject(new Error('missing-fields'));
         }
-      `}</style>
+        setBookError('');
+        return window.arcanaCreateCheckout({
+          tarotistId: ctx.tarotistId, slotId: ctx.slotId, customerName: ctx.customerName,
+          customerEmail: ctx.customerEmail, isSubscriber: ctx.isSubscriber, lang: ctx.lang,
+        }).then((res) => res.orderId);
+      },
+      onApprove: (data) => {
+        setPhase('confirming');
+        return window.arcanaConfirmBooking(data.orderID)
+          .then((res) => {
+            if (res.status === 'paid') { setConfirmed(res); setPhase('paid'); }
+            else { setPhase('error'); }
+          })
+          .catch(() => setPhase('error'));
+      },
+      onCancel: () => { setPhase('cancelled'); },
+      onError: () => { setBookError(es ? 'Ocurrió un error con PayPal.' : 'Something went wrong with PayPal.'); },
+    }).render(paypalButtonBoxRef.current);
+  }, [step, policiesAccepted, paypalSdkLoaded, subCheck.oraculoFreeSlotAvailable, tarotist, slotId]);
+
+  const bookFreeOraculoSlot = () => {
+    const ctx = bookingCtxRef.current;
+    if (!ctx.slotId || !profile.token) {
+      setBookError(es ? 'Elegí un horario primero.' : 'Choose a time first.');
+      return;
+    }
+    setBookError('');
+    setFreeBookingBusy(true);
+    window.arcanaCheckoutFree({
+      tarotistId: ctx.tarotistId, slotId: ctx.slotId, customerName: ctx.customerName, customerEmail: ctx.customerEmail, lang: ctx.lang,
+    })
+      .then((res) => { setConfirmed(res); setPhase('paid'); })
+      .catch((e) => setBookError(e.message || (es ? 'No se pudo reservar la sesión gratis.' : 'Could not book the free session.')))
+      .finally(() => setFreeBookingBusy(false));
+  };
+
+  const formatSlot = (iso) => {
+    try {
+      return new Date(iso).toLocaleString(es ? 'es-CL' : 'en-US', {
+        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return iso; }
+  };
+
+  if (!tarotistId) return null;
+
+  if (loading) {
+    return <div className="checkout-page"><div className="checkout-card"><div className="market-status italic">{t.market_loading}</div></div></div>;
+  }
+  if (loadError || !tarotist) {
+    return (
+      <div className="checkout-page">
+        <div className="checkout-card">
+          <div className="market-status market-status-error italic">{t.market_load_error}</div>
+          <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={() => setRoute({ page: 'marketplace' })}>
+            ← {es ? 'Volver al Marketplace' : 'Back to Marketplace'}
+          </button>
+        </div>
+        <style>{CHECKOUT_STYLES}</style>
+      </div>
+    );
+  }
+
+  const basePrice = Number(tarotist.rate) || settings.sessionBasePrice;
+  const discountPct = (subCheck.isSubscriber && subCheck.planKey && settings.planDiscounts) ? (settings.planDiscounts[subCheck.planKey] || 0) : 0;
+  const displayPrice = subCheck.oraculoFreeSlotAvailable
+    ? 0
+    : discountPct
+      ? Math.round(basePrice * (1 - discountPct / 100) * 100) / 100
+      : basePrice;
+  const chosenSlot = tarotist.availability && tarotist.availability.find((s) => s.id === slotId);
+
+  const sessionFeatures = [t.pricing_sessions_f1, t.pricing_sessions_f2, t.pricing_sessions_f3, t.pricing_sessions_f4, t.pricing_sessions_f5];
+
+  const steps = [
+    { key: 'intro', label: es ? 'Tu sesión' : 'Your session' },
+    { key: 'payment', label: es ? 'Pago' : 'Payment' },
+  ];
+  const stepIdx = steps.findIndex((s) => s.key === step);
+
+  return (
+    <div className="checkout-page">
+      <div className="checkout-card">
+        {phase === 'booking' && (
+          <>
+            <button className="checkout-exit" onClick={() => setRoute({ page: 'marketplace' })}>
+              ← {es ? 'Volver al Marketplace' : 'Back to Marketplace'}
+            </button>
+
+            <div className="checkout-steps" role="tablist">
+              {steps.map((s, i) => (
+                <div key={s.key} className={`checkout-step ${i === stepIdx ? 'is-active' : ''} ${i < stepIdx ? 'is-done' : ''}`}>
+                  <span className="checkout-step-dot">{i < stepIdx ? '✓' : i + 1}</span>
+                  <span className="checkout-step-label">{s.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {step === 'intro' && (
+              <div className="checkout-body">
+                <div
+                  className="session-orb"
+                  style={{ background: `radial-gradient(circle at 30% 30%, ${tarotist.color}, ${tarotist.color}55 60%, ${tarotist.color}11)` }}
+                >
+                  <span>{tarotist.initials}</span>
+                </div>
+                <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 8 }}>✦ {es ? '¡Excelente elección!' : 'Excellent choice!'} ✦</div>
+                <h1 className="checkout-h" style={{ textAlign: 'center' }}>{tarotist.name}</h1>
+                <p className="checkout-tag italic" style={{ textAlign: 'center' }}>
+                  {es ? tarotist.specialty_es : tarotist.specialty_en}
+                </p>
+
+                <p className="checkout-lead" style={{ marginTop: 20 }}>
+                  {es
+                    ? `Vas a agendar una sesión completa en vivo con ${tarotist.name}. Esto es lo que incluye:`
+                    : `You're about to book a full live session with ${tarotist.name}. Here's what it includes:`}
+                </p>
+                <ul className="checkout-features">
+                  {sessionFeatures.map((f, i) => (
+                    <li key={i}>
+                      <span className="cf-check" aria-hidden>✦</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="eyebrow" style={{ marginTop: 8, marginBottom: 10 }}>{t.market_book_choose_slot}</div>
+                {(!tarotist.availability || tarotist.availability.length === 0) ? (
+                  <div className="live-pay-note italic">{t.market_book_no_slots}</div>
+                ) : (
+                  <div className="live-slots">
+                    {tarotist.availability.map((s) => (
+                      <button
+                        key={s.id}
+                        className={`live-slot-btn ${slotId === s.id ? 'is-active' : ''}`}
+                        onClick={() => setSlotId(s.id)}
+                      >{formatSlot(s.startsAt)}</button>
+                    ))}
+                  </div>
+                )}
+
+                <button className="btn btn-primary btn-lg checkout-cta" style={{ marginTop: 24 }} disabled={!slotId} onClick={() => setStep('payment')}>
+                  {es ? 'Continuar' : 'Continue'} →
+                </button>
+              </div>
+            )}
+
+            {step === 'payment' && (
+              <div className="checkout-body">
+                <h2 className="checkout-h2">{es ? 'Confirmá tu sesión' : 'Confirm your session'}</h2>
+                <p className="checkout-sub italic">
+                  {es
+                    ? 'Revisá los detalles antes de pagar.'
+                    : 'Review the details before you pay.'}
+                </p>
+
+                <div className="form-field">
+                  <label>{t.market_book_name}</label>
+                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                </div>
+
+                <div className="checkout-summary">
+                  <div><span>{es ? 'Tarotista' : 'Reader'}</span><strong>{tarotist.name}</strong></div>
+                  <div><span>{es ? 'Horario' : 'Time'}</span><strong>{chosenSlot ? formatSlot(chosenSlot.startsAt) : '—'}</strong></div>
+                  <div><span>{es ? 'Duración' : 'Duration'}</span><strong>45 min</strong></div>
+                  <div><span>{t.market_book_email}</span><strong>{profile.email || '—'}</strong></div>
+                  <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{displayPrice} USD</strong></div>
+                </div>
+
+                {!!profile.token && (
+                  <p className="live-pay-note italic">
+                    {subCheck.checking
+                      ? (es ? 'Verificando suscripción…' : 'Checking subscription…')
+                      : subCheck.oraculoFreeSlotAvailable
+                        ? (es ? '✦ Suscripción Oráculo — tu sesión gratis de este mes está disponible.' : '✦ Oráculo subscription — your free session this month is available.')
+                        : subCheck.isSubscriber
+                          ? (es ? `✦ Suscripción activa (${subCheck.planKey}) — ${discountPct}% de descuento ya aplicado.` : `✦ Active subscription (${subCheck.planKey}) — ${discountPct}% discount already applied.`)
+                          : (es ? 'Sin suscripción activa con este email.' : 'No active subscription with this email.')}
+                  </p>
+                )}
+
+                <label className="checkout-policies" style={{ marginTop: 18 }}>
+                  <input type="checkbox" checked={policiesAccepted} onChange={(e) => setPoliciesAccepted(e.target.checked)} />
+                  <span>
+                    {es ? 'He leído y acepto ' : 'I have read and accept the '}
+                    <button type="button" className="checkout-policies-link" onClick={() => setPoliciesOpen(true)}>
+                      {es ? 'las Políticas de Lux Astral' : 'Lux Astral Policies'}
+                    </button>.
+                  </span>
+                </label>
+
+                {!profile.token && (
+                  <div className="live-pay-note italic">
+                    {es ? 'Tenés que iniciar sesión con tu cuenta antes de pagar.' : 'You need to sign in to your account before paying.'}
+                  </div>
+                )}
+                {bookError && <div className="live-pay-note italic" style={{ color: '#e08080' }}>{bookError}</div>}
+
+                {policiesAccepted ? (
+                  subCheck.oraculoFreeSlotAvailable ? (
+                    <button
+                      className="btn btn-primary btn-lg"
+                      style={{ width: '100%', marginTop: 8 }}
+                      disabled={freeBookingBusy || !slotId}
+                      onClick={bookFreeOraculoSlot}
+                    >
+                      {freeBookingBusy
+                        ? (es ? 'Reservando…' : 'Booking…')
+                        : (es ? 'Reservar gratis (incluida en tu plan)' : 'Book for free (included in your plan)')}
+                    </button>
+                  ) : (
+                    <>
+                      {!paypalSdkLoaded && <div className="live-pay-note italic">{t.market_book_processing}</div>}
+                      <div ref={paypalButtonBoxRef} className="live-paypal-box" />
+                    </>
+                  )
+                ) : (
+                  <div className="checkout-paypal-locked italic">
+                    {es ? 'Aceptá las políticas para habilitar el pago.' : 'Accept the policies to enable payment.'}
+                  </div>
+                )}
+
+                <div className="checkout-nav-row">
+                  <button className="btn btn-ghost" onClick={() => setStep('intro')}>← {es ? 'Volver' : 'Back'}</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {phase === 'confirming' && (
+          <div className="session-paying">
+            <div className="session-paying-spinner">
+              <span /><span /><span /><span /><span /><span /><span /><span />
+            </div>
+            <div className="eyebrow" style={{ color: 'var(--gold)' }}>{t.market_confirming}</div>
+          </div>
+        )}
+
+        {phase === 'cancelled' && (
+          <div className="checkout-body" style={{ textAlign: 'center' }}>
+            <p className="italic">{t.market_cancel_notice}</p>
+            <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={() => setPhase('booking')}>
+              ← {es ? 'Volver' : 'Back'}
+            </button>
+          </div>
+        )}
+
+        {phase === 'error' && (
+          <div className="checkout-body" style={{ textAlign: 'center' }}>
+            <p className="italic">{t.market_load_error}</p>
+            <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={() => setPhase('booking')}>
+              ← {es ? 'Volver' : 'Back'}
+            </button>
+          </div>
+        )}
+
+        {phase === 'paid' && confirmed && (
+          <div className="checkout-body">
+            <div className="session-paid-icon">✦</div>
+            <div className="eyebrow" style={{ color: 'var(--gold)', marginBottom: 8, textAlign: 'center' }}>— {t.market_paid_h} —</div>
+            <h2 className="checkout-h2" style={{ textAlign: 'center' }}>{t.market_paid_sub}</h2>
+
+            <div className="session-paid-when">
+              <div className="eyebrow">{t.market_paid_when}</div>
+              <div className="session-paid-when-v">{confirmed.when ? formatSlot(confirmed.when) : ''}</div>
+            </div>
+
+            <div className="session-code-block">
+              <div className="eyebrow" style={{ color: 'var(--gold)', marginBottom: 8 }}>{t.market_paid_your_code}</div>
+              <div className="session-code">{confirmed.accessCode}</div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10, marginTop: 24 }}>
+              {(() => {
+                const joinFrom = confirmed.videoJoinFrom ? new Date(confirmed.videoJoinFrom).getTime() : 0;
+                const canJoinNow = !joinFrom || Date.now() >= joinFrom;
+                if (confirmed.videoRoomUrl && canJoinNow) {
+                  return (
+                    <button
+                      className="btn btn-primary btn-lg"
+                      style={{ width: '100%' }}
+                      onClick={() => setRoute({ page: 'videocall', accessCode: confirmed.accessCode })}
+                    >
+                      {t.market_paid_enter} →
+                    </button>
+                  );
+                }
+                if (confirmed.videoRoomUrl && !canJoinNow) {
+                  return <div className="session-code-note italic">{t.market_paid_too_early}</div>;
+                }
+                if (confirmed.meetingLink) {
+                  return (
+                    <a
+                      className="btn btn-primary btn-lg"
+                      style={{ width: '100%', textAlign: 'center', textDecoration: 'none' }}
+                      href={confirmed.meetingLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {t.market_paid_enter} →
+                    </a>
+                  );
+                }
+                return <div className="session-code-note italic">{t.market_paid_join_fallback}</div>;
+              })()}
+              <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setRoute({ page: 'mybookings' })}>
+                {t.market_paid_view_bookings}
+              </button>
+              <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setRoute({ page: 'home' })}>
+                {t.market_paid_later}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {policiesOpen && (
+        <div className="modal-overlay" onClick={() => setPoliciesOpen(false)}>
+          <div className="modal" style={{ maxWidth: 640, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setPoliciesOpen(false)}>✕</button>
+            <PoliciesContent lang={lang} />
+          </div>
+        </div>
+      )}
+
+      <style>{CHECKOUT_STYLES + SESSION_EXTRA_STYLES}</style>
     </div>
   );
 }

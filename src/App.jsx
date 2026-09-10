@@ -15,7 +15,7 @@ function App() {
     Nav, Starfield,
     HomePage, ReadingsPage, ReadingPage, LibraryPage,
     ChartPage, MoonPage, MarketplacePage, PhilosophyPage,
-    ProfilePage, PricingPage, PlanCheckoutPage, PoliciesPage, OnboardingPage,
+    ProfilePage, PricingPage, PlanCheckoutPage, SessionCheckoutPage, PoliciesPage, OnboardingPage,
     ChatPage, VideoCallPage, AboutPage, SetupPage, MyBookingsPage, WelcomePage,
     TweaksPanel, TweakSection, TweakRadio, useTweaks,
   } = window;
@@ -244,7 +244,7 @@ function App() {
   }
 
   // Fullscreen routes: skip Nav for immersive flows
-  const fullscreenRoutes = ['onboarding', 'chat', 'videocall', 'welcome', 'plancheckout'];
+  const fullscreenRoutes = ['onboarding', 'chat', 'videocall', 'welcome', 'plancheckout', 'sessioncheckout'];
   const isFullscreen = fullscreenRoutes.includes(route.page);
 
   // Route rendering
@@ -257,6 +257,7 @@ function App() {
     case 'chart':       page = <ChartPage lang={lang} />; break;
     case 'moon':        page = <MoonPage lang={lang} />; break;
     case 'marketplace': page = <MarketplacePage lang={lang} setRoute={setRoute} profile={profile} />; break;
+    case 'sessioncheckout': page = <SessionCheckoutPage lang={lang} setRoute={setRoute} profile={profile} tarotistId={route.tarotistId} />; break;
     case 'philosophy':  page = <PhilosophyPage lang={lang} />; break;
     case 'contact':     page = <ContactPage lang={lang} />; break;
     case 'about':       page = <AboutPage lang={lang} setRoute={setRoute} />; break;
