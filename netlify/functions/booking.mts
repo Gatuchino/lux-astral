@@ -637,6 +637,18 @@ function verifyEmailHtml(verifyUrl: string, es: boolean) {
   </div>`;
 }
 
+function registrationNotifyHtml(name: string, email: string) {
+  const esc = (s: string) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;">
+    <h1 style="color:#d4a85a;font-size:20px;">Nuevo registro en Lux Astral</h1>
+    <p style="font-size:15px;line-height:1.6;">
+      <strong>Nombre:</strong> ${esc(name || "(sin nombre)")}<br/>
+      <strong>Email:</strong> ${esc(email)}
+    </p>
+  </div>`;
+}
+
 function activationEmailHtml(planKey: string, activationUrl: string, es: boolean) {
   const planName = ({ luna: "Luna", estrella: "Estrella" } as Record<string, string>)[planKey] || planKey;
   const title = es ? `¡Te regalamos una membresía ${planName}!` : `You've been gifted a ${planName} membership!`;
@@ -1044,6 +1056,15 @@ export default async (req: Request) => {
       store.userSessions[sessionToken] = { email: matchedEmail, createdAt: Date.now() };
       logEvent(store, { email: matchedEmail, type: "signup", detail: {} });
       await saveStore(store);
+      try {
+        await resendSend(
+          "registros@luxastral.com",
+          `Nuevo registro: ${pending.name || matchedEmail}`,
+          registrationNotifyHtml(pending.name || "", matchedEmail)
+        );
+      } catch (e) {
+        console.error("No se pudo enviar la notificacion de registro:", e);
+      }
       return json(200, { ok: true, token: sessionToken, user: publicUser(store, matchedEmail) });
     }
 
