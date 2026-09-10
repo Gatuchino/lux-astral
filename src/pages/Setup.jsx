@@ -30,9 +30,70 @@ const AI_USAGE_KIND_LABELS = {
 };
 const AI_USAGE_PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', glm: 'GLM (Z.ai)', gemini: 'Google Gemini', groq: 'Groq', elevenlabs: 'ElevenLabs' };
 
+// 2026-09-10 (a pedido de Christian): el panel tenia 19 secciones en una
+// sola pantalla larguisima -- ahora se agrupan en categorias con una
+// grilla de tarjetas como pantalla de inicio, mas un buscador que salta
+// directo a cualquier seccion por nombre. Cada categoria es independiente
+// (nada se junta que no deberia -- ej. Videollamadas y Aspectos visuales
+// quedan separados a pedido explicito).
+const SETUP_CATEGORIES = [
+  { id: 'cuenta', icon: '🔐', label_es: 'Cuenta y accesos', label_en: 'Account & access', desc_es: 'Contraseña del panel y quién tiene acceso.', desc_en: 'Panel password and who has access.' },
+  { id: 'video', icon: '🎥', label_es: 'Videollamadas', label_en: 'Video calls', desc_es: 'Salón en vivo, tarotistas, sesiones y precios.', desc_en: 'Live room, readers, sessions and pricing.' },
+  { id: 'planes', icon: '💳', label_es: 'Planes y membresías', label_en: 'Plans & memberships', desc_es: 'Suscripciones PayPal y membresías ad-honores.', desc_en: 'PayPal subscriptions and complimentary memberships.' },
+  { id: 'comunicacion', icon: '📬', label_es: 'Comunicación', label_en: 'Communication', desc_es: 'Boletín diario y novedades por email.', desc_en: 'Daily newsletter and email announcements.' },
+  { id: 'tienda', icon: '🛍️', label_es: 'Tienda', label_en: 'Shop', desc_es: 'Merchandising y tarifas de envío.', desc_en: 'Merchandise and shipping rates.' },
+  { id: 'ia', icon: '✨', label_es: 'Inteligencia Artificial', label_en: 'Artificial intelligence', desc_es: 'Modelo de IA, voz y uso/costos.', desc_en: 'AI model, voice, and usage/costs.' },
+  { id: 'experiencia', icon: '🔮', label_es: 'Experiencia de lectura', label_en: 'Reading experience', desc_es: 'Tipo de respuesta y aspectos visuales.', desc_en: 'Response type and visual style.' },
+  { id: 'negocio', icon: '📊', label_es: 'Negocio y datos', label_en: 'Business & data', desc_es: 'Informes, respaldo de datos y próximas ideas.', desc_en: 'Reports, data backup, and upcoming ideas.' },
+];
+// Indice plano para el buscador -- un item por cada SetupSection real. El
+// id de cada item coincide con el id="setup-sec-<id>" que envuelve a esa
+// seccion mas abajo, asi el buscador puede hacer scroll directo a ella.
+const SETUP_SEARCH_INDEX = [
+  { id: 'pwd', categoryId: 'cuenta', title_es: 'Cambiar contraseña del panel', title_en: 'Change panel password' },
+  { id: 'accounts', categoryId: 'cuenta', title_es: 'Cuentas y accesos', title_en: 'Accounts & access' },
+  { id: 'informes', categoryId: 'negocio', title_es: 'Informes', title_en: 'Reports' },
+  { id: 'room', categoryId: 'video', title_es: 'Salón de chat y videoconferencia', title_en: 'Chat room & video conference' },
+  { id: 'readers', categoryId: 'video', title_es: 'Tarotistas', title_en: 'Readers' },
+  { id: 'sessions', categoryId: 'video', title_es: 'Sesiones próximas', title_en: 'Upcoming sessions' },
+  { id: 'videoprice', categoryId: 'video', title_es: 'Precio y comisión de sesiones de video', title_en: 'Video session price and commission' },
+  { id: 'subplans', categoryId: 'planes', title_es: 'Planes de suscripción (PayPal)', title_en: 'Subscription plans (PayPal)' },
+  { id: 'memberships', categoryId: 'planes', title_es: 'Membresías', title_en: 'Memberships' },
+  { id: 'newsletter', categoryId: 'comunicacion', title_es: 'Newsletter y novedades', title_en: 'Newsletter and updates' },
+  { id: 'merch', categoryId: 'tienda', title_es: 'Merchandising', title_en: 'Merchandise' },
+  { id: 'shipping', categoryId: 'tienda', title_es: 'Envíos', title_en: 'Shipping' },
+  { id: 'aiapi', categoryId: 'ia', title_es: 'API para las lecturas', title_en: 'API for readings' },
+  { id: 'voice', categoryId: 'ia', title_es: 'Voz (ElevenLabs)', title_en: 'Voice (ElevenLabs)' },
+  { id: 'aiusage', categoryId: 'ia', title_es: 'Uso de IA y costos', title_en: 'AI usage and costs' },
+  { id: 'responsetype', categoryId: 'experiencia', title_es: 'Tipo de respuesta', title_en: 'Response type' },
+  { id: 'visual', categoryId: 'experiencia', title_es: 'Aspectos visuales', title_en: 'Visual style' },
+  { id: 'backup', categoryId: 'negocio', title_es: 'Respaldo de datos', title_en: 'Data backup' },
+  { id: 'soon', categoryId: 'negocio', title_es: 'Próximamente', title_en: 'Coming soon' },
+];
+
 function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser }) {
   const t = window.I18N[lang];
   const es = lang === 'es';
+
+  // Navegacion por categorias del panel (ver SETUP_CATEGORIES arriba).
+  // null = se ve la grilla de tarjetas; con un id, se ve solo esa categoria.
+  const [activeCategory, setActiveCategory] = React.useState(null);
+  const [setupSearch, setSetupSearch] = React.useState('');
+  const [scrollToSection, setScrollToSection] = React.useState(null);
+  const setupSearchResults = setupSearch.trim()
+    ? SETUP_SEARCH_INDEX.filter((s) => (es ? s.title_es : s.title_en).toLowerCase().includes(setupSearch.trim().toLowerCase()))
+    : [];
+  const goToSetupSection = (item) => {
+    setActiveCategory(item.categoryId);
+    setScrollToSection(item.id);
+    setSetupSearch('');
+  };
+  React.useEffect(() => {
+    if (!scrollToSection) return;
+    const el = document.getElementById('setup-sec-' + scrollToSection);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setScrollToSection(null);
+  }, [activeCategory, scrollToSection]);
 
   const readJSON = (key, fallback) => {
     try {
@@ -762,6 +823,56 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         </div>
       </div>
 
+      <div className="setup-search">
+        <input
+          type="text"
+          className="setup-search-input"
+          value={setupSearch}
+          onChange={(e) => setSetupSearch(e.target.value)}
+          placeholder={es ? '🔍 Buscar una sección por nombre…' : '🔍 Search a section by name…'}
+        />
+        {setupSearch.trim() && (
+          <div className="setup-search-results">
+            {setupSearchResults.length === 0 && (
+              <p className="setup-search-empty">{es ? 'No encontramos ninguna sección con ese nombre.' : "We couldn't find a section with that name."}</p>
+            )}
+            {setupSearchResults.map((item) => {
+              const cat = SETUP_CATEGORIES.find((c) => c.id === item.categoryId);
+              return (
+                <button key={item.id} className="setup-search-result" onClick={() => goToSetupSection(item)}>
+                  <span>{es ? item.title_es : item.title_en}</span>
+                  <span className="setup-search-result-cat">{cat ? `${cat.icon} ${es ? cat.label_es : cat.label_en}` : ''}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {activeCategory === null ? (
+        <div className="setup-category-grid">
+          {SETUP_CATEGORIES.map((c) => (
+            <button key={c.id} className="setup-category-card" onClick={() => setActiveCategory(c.id)}>
+              <span className="setup-category-icon">{c.icon}</span>
+              <span className="setup-category-label">{es ? c.label_es : c.label_en}</span>
+              <span className="setup-category-desc">{es ? c.desc_es : c.desc_en}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="setup-back-row">
+          <button className="btn btn-ghost" onClick={() => setActiveCategory(null)}>
+            ← {es ? 'Volver al panel' : 'Back to panel'}
+          </button>
+          <h2 className="setup-category-heading">
+            {(() => {
+              const c = SETUP_CATEGORIES.find((x) => x.id === activeCategory);
+              return c ? `${c.icon} ${es ? c.label_es : c.label_en}` : '';
+            })()}
+          </h2>
+        </div>
+      )}
+
       {testBooking && (
         <div className="setup-warning" style={{ borderColor: 'rgba(120,200,140,.4)' }}>
           <span className="setup-warning-icon">🧪</span>
@@ -790,6 +901,8 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         </div>
       )}
 
+      {activeCategory === 'cuenta' && (
+      <div id="setup-sec-pwd">
       {/* ---------- Cambiar contraseña del panel ---------- */}
       <SetupSection
         title={es ? 'Cambiar contraseña del panel' : 'Change panel password'}
@@ -813,7 +926,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         </div>
         {pwError && <p className="setup-gate-error">{pwError}</p>}
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'cuenta' && (
+      <div id="setup-sec-accounts">
       {/* ---------- Cuentas con acceso (power users reales) ---------- */}
       <SetupSection
         title={es ? 'Cuentas y accesos' : 'Accounts & access'}
@@ -850,7 +967,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           </ul>
         )}
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'negocio' && (
+      <div id="setup-sec-informes">
       {/* ---------- Informes: accesos, tiempo en plataforma, movimientos ---------- */}
       <SetupSection
         title={es ? 'Informes' : 'Reports'}
@@ -928,7 +1049,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           </table>
         )}
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'video' && (
+      <div id="setup-sec-room">
       {/* ---------- Salón de chat y videoconferencia ---------- */}
       <SetupSection
         title={es ? 'Salón de chat y videoconferencia' : 'Chat room & video conference'}
@@ -942,7 +1067,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             : "DAILY_API_KEY still needs to be set in .env for rooms to be created — without it, the manual Zoom/Meet link you set above for each reader is used instead."}
         </p>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'video' && (
+      <div id="setup-sec-readers">
       {/* ---------- Tarotistas ---------- */}
       <SetupSection
         title={es ? 'Tarotistas' : 'Readers'}
@@ -1086,7 +1215,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           </button>
         </div>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'video' && (
+      <div id="setup-sec-sessions">
       {/* ---------- Sesiones próximas: acceso directo a la sala para la tarotista ---------- */}
       <SetupSection
         title={es ? 'Sesiones próximas' : 'Upcoming sessions'}
@@ -1123,7 +1256,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         </div>
         <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={loadSessions}>{es ? 'Actualizar' : 'Refresh'}</button>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'video' && (
+      <div id="setup-sec-videoprice">
       {/* ---------- Envíos y sesiones: precio base, descuento, comisión ---------- */}
       <SetupSection
         title={es ? 'Precio y comisión de sesiones de video' : 'Video session price and commission'}
@@ -1177,7 +1314,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           {settingsSaved ? (es ? 'Guardado ✓' : 'Saved ✓') : (es ? 'Guardar' : 'Save')}
         </button>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'planes' && (
+      <div id="setup-sec-subplans">
       {/* ---------- Planes de suscripción (PayPal Subscriptions) ---------- */}
       <SetupSection
         title={es ? 'Planes de suscripción (PayPal)' : 'Subscription plans (PayPal)'}
@@ -1212,7 +1353,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         })()}
         {subPlansError && <div className="italic" style={{ fontSize: 12, color: '#e08080', marginTop: 8 }}>{subPlansError}</div>}
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'planes' && (
+      <div id="setup-sec-memberships">
       {/* ---------- Membresías ad-honores ---------- */}
       <SetupSection
         title={es ? 'Membresías' : 'Memberships'}
@@ -1292,7 +1437,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           )}
         </div>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'comunicacion' && (
+      <div id="setup-sec-newsletter">
       {/* ---------- Newsletter y novedades ---------- */}
       <SetupSection
         title={es ? 'Newsletter y novedades' : 'Newsletter and updates'}
@@ -1533,7 +1682,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           )}
         </div>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'tienda' && (
+      <div id="setup-sec-merch">
       {/* ---------- Merchandising: precios ---------- */}
       <SetupSection
         title={es ? 'Merchandising' : 'Merchandise'}
@@ -1568,7 +1721,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             : "Prices in USD (same convention as the rest of the site). There's no real payment gateway yet — the Shop page shows the catalog and asks people to write to hola@luxastral.com to buy."}
         </p>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'tienda' && (
+      <div id="setup-sec-shipping">
       {/* ---------- Envíos: tarifas por zona ---------- */}
       <SetupSection
         title={es ? 'Envíos' : 'Shipping'}
@@ -1603,7 +1760,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             : 'Reference rates — confirm them with your real courier before announcing them to customers.'}
         </p>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'ia' && (
+      <div id="setup-sec-aiapi">
       {/* ---------- API para las lecturas ---------- */}
       <SetupSection
         title={es ? 'API para las lecturas' : 'API for readings'}
@@ -1633,7 +1794,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             : `This provider needs the ${currentProvider.keyEnv} variable configured server-side. A more powerful model gives richer readings but is slower and costs more per request.`}
         </p>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'ia' && (
+      <div id="setup-sec-voice">
       {/* ---------- Voz (ElevenLabs) ---------- */}
       <SetupSection
         title={es ? 'Voz (ElevenLabs)' : 'Voice (ElevenLabs)'}
@@ -1665,7 +1830,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             : 'To pick a sweet, harmonious voice: go to elevenlabs.io → Voice Library, find one you like, copy its Voice ID and paste it above.'}
         </p>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'ia' && (
+      <div id="setup-sec-aiusage">
       {/* ---------- Uso de IA y costos ---------- */}
       <SetupSection
         title={es ? 'Uso de IA y costos' : 'AI usage and costs'}
@@ -1892,7 +2061,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           </>
         )}
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'experiencia' && (
+      <div id="setup-sec-responsetype">
       {/* ---------- Tipo de respuesta ---------- */}
       <SetupSection
         title={es ? 'Tipo de respuesta' : 'Response type'}
@@ -1923,7 +2096,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             : 'Types 4 and 5 use more tokens (so they cost a bit more per reading). Type 5 needs the PDF library to load correctly in the browser for the download button.'}
         </p>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'experiencia' && (
+      <div id="setup-sec-visual">
       {/* ---------- Aspectos visuales ---------- */}
       <SetupSection
         title={es ? 'Aspectos visuales' : 'Visual style'}
@@ -1964,7 +2141,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           />
         </div>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'negocio' && (
+      <div id="setup-sec-backup">
       {/* ---------- Respaldo de datos ---------- */}
       <SetupSection
         title={es ? 'Respaldo de datos' : 'Data backup'}
@@ -1977,7 +2158,11 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           <button className="btn btn-ghost setup-danger" onClick={resetAll}>{es ? 'Restablecer todo' : 'Reset everything'}</button>
         </div>
       </SetupSection>
+      </div>
+      )}
 
+      {activeCategory === 'negocio' && (
+      <div id="setup-sec-soon">
       {/* ---------- Próximamente ---------- */}
       <SetupSection
         title={es ? 'Próximamente' : 'Coming soon'}
@@ -1990,10 +2175,59 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
           <li>{es ? 'Moderación de mensajes del chat en vivo.' : 'Moderation of live chat messages.'}</li>
         </ul>
       </SetupSection>
+      </div>
+      )}
 
       <style>{`
         .setup-page { max-width: 900px; }
         .setup-head { margin-bottom: 28px; }
+
+        .setup-search { position: relative; margin-bottom: 24px; }
+        .setup-search-input {
+          width: 100%; padding: 14px 18px; border-radius: 12px;
+          border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--ink);
+          font-size: 15px;
+        }
+        .setup-search-input:focus { outline: none; border-color: var(--gold); }
+        .setup-search-results {
+          position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20;
+          background: var(--bg-3); border: 1px solid var(--line); border-radius: 12px;
+          box-shadow: 0 12px 32px rgba(0,0,0,0.35); overflow: hidden; max-height: 340px; overflow-y: auto;
+        }
+        .setup-search-result {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          width: 100%; text-align: left; padding: 12px 16px; background: none; border: none;
+          border-bottom: 1px solid var(--line); color: var(--ink); font-size: 14.5px; cursor: pointer;
+        }
+        .setup-search-result:last-child { border-bottom: none; }
+        .setup-search-result:hover { background: rgba(212, 168, 90, 0.08); }
+        .setup-search-result-cat { font-size: 12px; color: var(--ink-mute); white-space: nowrap; }
+        .setup-search-empty { padding: 14px 16px; color: var(--ink-mute); font-size: 14px; margin: 0; }
+
+        .setup-category-grid {
+          display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px;
+          margin-bottom: 40px;
+        }
+        .setup-category-card {
+          display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
+          padding: 22px 20px; border-radius: 16px; border: 1px solid var(--line);
+          background: rgba(255,255,255,0.02); color: var(--ink); cursor: pointer;
+          transition: border-color .15s, transform .15s;
+        }
+        .setup-category-card:hover { border-color: var(--gold); transform: translateY(-2px); }
+        .setup-category-icon { font-size: 28px; margin-bottom: 4px; }
+        .setup-category-label {
+          font-family: 'Cinzel', serif; font-size: 15px; letter-spacing: 0.02em; color: var(--gold);
+        }
+        .setup-category-desc { font-size: 13.5px; color: var(--ink-soft); line-height: 1.4; }
+
+        .setup-back-row {
+          display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 32px;
+          padding-bottom: 18px; border-bottom: 1px solid var(--line);
+        }
+        .setup-category-heading {
+          font-family: 'Cinzel', serif; font-size: 20px; color: var(--gold); margin: 0;
+        }
         .setup-sub { font-size: 18px; color: var(--ink-soft); margin-top: 10px; max-width: 640px; }
         .setup-warning {
           display: flex; gap: 14px; align-items: flex-start;
