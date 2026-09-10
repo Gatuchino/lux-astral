@@ -880,6 +880,17 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         { value: 'gemini-2.5-pro', label_es: 'Gemini 2.5 Pro — máxima calidad', label_en: 'Gemini 2.5 Pro — highest quality' },
       ],
     },
+    {
+      // 2026-09-10 (a pedido de Christian): lo agrega a las alternativas
+      // manuales para poder probarlo el mismo -- como el modelo gratis de
+      // respaldo para usuarias sin plan (ver tarot-generate-background.mts),
+      // ya estaba integrado del lado del servidor; esto solo lo hace
+      // seleccionable para lecturas de socias con plan tambien.
+      id: 'groq', label: 'Groq (gratis)', keyEnv: 'GROQ_API_KEY',
+      models: [
+        { value: 'llama-3.3-70b-versatile', label_es: 'Llama 3.3 70B — gratis, rápido (para probar)', label_en: 'Llama 3.3 70B — free, fast (for testing)' },
+      ],
+    },
   ];
   const [provider, setProviderRaw] = React.useState(() => localStorage.getItem('arcana_setup_provider') || 'anthropic');
   const currentProvider = PROVIDERS.find((p) => p.id === provider) || PROVIDERS[0];
