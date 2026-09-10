@@ -233,6 +233,21 @@ window.arcanaGetAiUsageSummary = async function () {
 };
 window.arcanaSaveAiPricing = (pricing) => arcanaBookingCall('save-ai-pricing', { pricing }); // -> { ok, pricing }
 
+// Reporte de "Experiencia de lectura" (a pedido de Christian, 2026-09-10):
+// que tiradas se piden mas, que tipos de respuesta (1 a 5) se piden mas,
+// y cuantas preguntas de seguimiento hace la gente en promedio.
+window.arcanaGetExperienciaSummary = async function () {
+  const setupToken = (() => { try { return JSON.parse(sessionStorage.getItem('arcana_setup_session') || 'null')?.token || ''; } catch { return ''; } })();
+  const res = await fetch('/.netlify/functions/booking?action=get-experiencia-summary&setupToken=' + encodeURIComponent(setupToken));
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'No se pudo cargar el resumen de experiencia de lectura.');
+  return json; // { initialReadings, followUps, avgFollowUpsPerReading, bySpread, byResponseType }
+};
+// Boton "Enviar prueba ahora" en Setup -- el envio automatico mensual real
+// lo dispara netlify/functions/monthly-admin-report.mts (Netlify Scheduled
+// Function), esto es solo para probarlo sin esperar al dia 1.
+window.arcanaSendMonthlyReportNow = (force) => arcanaBookingCall('send-monthly-admin-report', { force: !!force }); // -> { sent, failed, total, month } | { skipped, reason }
+
 // Registro liviano de accesos y secciones visitadas (nunca preguntas ni
 // interpretaciones). Fire-and-forget: si falla, no interrumpe nada.
 window.arcanaLogEvent = (page) => arcanaBookingCall('log-event', { page }); // el email se deriva de la sesión si hay una activa

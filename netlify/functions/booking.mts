@@ -140,6 +140,128 @@ function buildAiUsageSummary(store: any) {
     defaultPricing: DEFAULT_AI_PRICING,
   };
 }
+// 2026-09-10 (a pedido de Christian): reporte de "Experiencia de lectura"
+// -- que tiradas se piden mas, que tipos de respuesta (1 a 5) se piden
+// mas, y cuantas preguntas de seguimiento hace la gente en promedio.
+// Se arma desde el mismo aiUsageLog que ya usa buildAiUsageSummary: cada
+// entrada de una lectura inicial ahora guarda "spread" (ver
+// issueReadingTicket / tarot-generate-background.mts) y el "kind" ya
+// venia como reading-tipo-N o reading-followup.
+function buildExperienciaLecturaSummary(store: any) {
+  const log = Array.isArray(store.aiUsageLog) ? store.aiUsageLog : [];
+  const bySpread: Record<string, number> = {};
+  const byResponseType: Record<string, number> = {};
+  let initialReadings = 0;
+  let followUps = 0;
+  log.forEach((e: any) => {
+    if (e.kind === "reading-followup") {
+      followUps += 1;
+      return;
+    }
+    const m = /^reading-tipo-(.+)$/.exec(e.kind || "");
+    if (!m) return; // no es una lectura (boletin, voz, etc.)
+    initialReadings += 1;
+    byResponseType[m[1]] = (byResponseType[m[1]] || 0) + 1;
+    if (e.spread) bySpread[e.spread] = (bySpread[e.spread] || 0) + 1;
+  });
+  return {
+    initialReadings,
+    followUps,
+    avgFollowUpsPerReading: initialReadings ? followUps / initialReadings : 0,
+    bySpread,
+    byResponseType,
+  };
+}
+
+// ---- Reporte mensual por email: CSV + HTML a partir de los 3 resumenes
+// de arriba (ver accion "send-monthly-admin-report" mas abajo). ----
+const SPREAD_LABELS_ES: Record<string, string> = {
+  daily: "Carta del día", three: "Pasado / Presente / Futuro", love: "Tirada del amor",
+  celtic: "Cruz Celta", work: "Camino Profesional", free: "Pregunta Libre",
+  decision: "Decisión", six: "Camino de Seis Cartas", year: "Rueda del Año",
+};
+const RESPONSE_TYPE_LABELS_ES: Record<string, string> = {
+  "1": "Tipo 1 · Rápida", "2": "Tipo 2 · Breve (gratis)", "3": "Tipo 3 · Elaborada",
+  "4": "Tipo 4 · Extensa con seguimiento", "5": "Tipo 5 · Informe Oráculo",
+};
+function csvEscape(v: any): string {
+  const s = String(v === undefined || v === null ? "" : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function rowsToCsv(rows: any[][]): string {
+  return rows.map((r) => r.map(csvEscape).join(",")).join("\n");
+}
+function iaSummaryToCsv(ia: any): string {
+  const rows: any[][] = [["Tipo de consulta", "Consultas", "Tokens entrada", "Tokens salida", "Costo USD"]];
+  Object.keys(ia.byKind || {}).forEach((k) => {
+    const e = ia.byKind[k];
+    rows.push([k, e.queries, e.inputTokens, e.outputTokens, e.costUsd.toFixed(4)]);
+  });
+  rows.push([]);
+  rows.push(["Proveedor / modelo", "Consultas", "Tokens entrada", "Tokens salida", "Costo USD"]);
+  Object.keys(ia.byModel || {}).forEach((k) => {
+    const e = ia.byModel[k];
+    rows.push([k, e.queries, e.inputTokens, e.outputTokens, e.costUsd.toFixed(4)]);
+  });
+  rows.push([]);
+  rows.push(["Total", ia.totals.queries, ia.totals.inputTokens, ia.totals.outputTokens, ia.totals.costUsd.toFixed(4)]);
+  return rowsToCsv(rows);
+}
+function experienciaSummaryToCsv(experiencia: any): string {
+  const rows: any[][] = [["Tirada", "Veces elegida"]];
+  Object.keys(experiencia.bySpread || {}).forEach((k) => {
+    rows.push([SPREAD_LABELS_ES[k] || k, experiencia.bySpread[k]]);
+  });
+  rows.push([]);
+  rows.push(["Tipo de respuesta", "Veces pedido"]);
+  Object.keys(experiencia.byResponseType || {}).forEach((k) => {
+    rows.push([RESPONSE_TYPE_LABELS_ES[k] || `Tipo ${k}`, experiencia.byResponseType[k]]);
+  });
+  rows.push([]);
+  rows.push(["Lecturas iniciales", experiencia.initialReadings]);
+  rows.push(["Preguntas de seguimiento", experiencia.followUps]);
+  rows.push(["Promedio de seguimiento por lectura", experiencia.avgFollowUpsPerReading.toFixed(2)]);
+  return rowsToCsv(rows);
+}
+function negocioSummaryToCsv(negocio: any): string {
+  const rows: any[][] = [["Email", "Último acceso", "Sesiones", "Minutos en plataforma", "Eventos"]];
+  (negocio.users || []).forEach((u: any) => {
+    rows.push([u.email, new Date(u.lastAccess).toISOString(), u.sessions, u.minutesOnPlatform, u.eventCount]);
+  });
+  return rowsToCsv(rows);
+}
+function htmlTable(headers: string[], rows: (string | number)[][]): string {
+  const th = headers.map((h) => `<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #4a3a6a;color:#d4a85a;font-size:12px;">${h}</th>`).join("");
+  const trs = rows.map((r) => `<tr>${r.map((c) => `<td style="padding:6px 10px;border-bottom:1px solid #2a2048;font-size:13px;">${c}</td>`).join("")}</tr>`).join("");
+  return `<table style="border-collapse:collapse;width:100%;margin:10px 0 22px;"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+}
+function monthlyAdminReportHtml(monthNow: string, ia: any, negocio: any, experiencia: any): string {
+  const iaRows = Object.keys(ia.byKind || {}).map((k) => [k, ia.byKind[k].queries, `$${ia.byKind[k].costUsd.toFixed(2)}`]);
+  const expSpreadRows = Object.keys(experiencia.bySpread || {}).map((k) => [SPREAD_LABELS_ES[k] || k, experiencia.bySpread[k]]);
+  const expTypeRows = Object.keys(experiencia.byResponseType || {}).map((k) => [RESPONSE_TYPE_LABELS_ES[k] || `Tipo ${k}`, experiencia.byResponseType[k]]);
+  const topUsers = (negocio.users || []).slice(0, 15).map((u: any) => [u.email, u.sessions, u.minutesOnPlatform]);
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;max-width:640px;">
+    <p style="color:#b3a8c8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Lux Astral · Reporte mensual</p>
+    <h1 style="color:#d4a85a;font-size:22px;margin-top:4px;">${monthNow}</h1>
+    <p style="font-size:12px;color:#8a82a0;">El detalle completo va adjunto en 3 archivos CSV (Inteligencia Artificial, Experiencia de lectura, Negocio y datos).</p>
+
+    <h2 style="color:#d4a85a;font-size:15px;margin-top:26px;">✨ Inteligencia Artificial</h2>
+    <p style="font-size:13px;color:#b3a8c8;">Costo total del mes: <strong style="color:#f0e2c0;">$${ia.monthCostUsd.toFixed(2)}</strong> · ${ia.totals.queries} consultas en total (180 días de historial)</p>
+    ${htmlTable(["Tipo de consulta", "Consultas", "Costo"], iaRows)}
+
+    <h2 style="color:#d4a85a;font-size:15px;">🔮 Experiencia de lectura</h2>
+    <p style="font-size:13px;color:#b3a8c8;">${experiencia.initialReadings} lecturas iniciales · ${experiencia.followUps} preguntas de seguimiento (promedio ${experiencia.avgFollowUpsPerReading.toFixed(2)} por lectura)</p>
+    ${htmlTable(["Tirada", "Veces elegida"], expSpreadRows)}
+    ${htmlTable(["Tipo de respuesta", "Veces pedido"], expTypeRows)}
+
+    <h2 style="color:#d4a85a;font-size:15px;">📊 Negocio y datos</h2>
+    <p style="font-size:13px;color:#b3a8c8;">${negocio.totalEvents} eventos registrados · ${(negocio.users || []).length} personas con actividad</p>
+    ${htmlTable(["Email", "Sesiones", "Minutos"], topUsers)}
+
+    <p style="margin-top:28px;font-size:11px;color:#6b6188;">Reporte automático mensual de Lux Astral. Configurable desde Setup → Negocio y datos.</p>
+  </div>`;
+}
+
 // assets/cards/NN-slug.jpg -- lista fija de las 22 cartas mayores (las
 // únicas que puede salir como carta del día), evita tener que listar el
 // directorio (no disponible vía fetch a un sitio estático).
@@ -645,13 +767,14 @@ function pruneReadingTickets(store: any) {
     if (now - store.readingTickets[id].createdAt > READING_TICKET_TTL_MS) delete store.readingTickets[id];
   }
 }
-function issueReadingTicket(store: any, email: string, responseType: string, planKey: string) {
+function issueReadingTicket(store: any, email: string, responseType: string, planKey: string, spread?: string) {
   pruneReadingTickets(store);
   const ticketId = crypto.randomUUID();
   store.readingTickets[ticketId] = {
     email,
     responseType,
     planKey, // "vela" (gratis) o el plan pago -- decide el modelo de IA server-side, ver tarot-generate-background.mts
+    spread: spread || "", // 2026-09-10: solo para el reporte de "Experiencia de lectura" (que tirada se usa mas)
     maxFollowUps: RESPONSE_TYPE_MAX_FOLLOWUPS[responseType] || 0,
     followUpsUsed: 0,
     createdAt: Date.now(),
@@ -680,7 +803,7 @@ async function resolveReadingAccess(store: any, email: string, spread: string, p
     const responseType = preferredResponseType && options.includes(preferredResponseType)
       ? preferredResponseType
       : PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
-    const ticketId = issueReadingTicket(store, key, responseType, sub.planKey);
+    const ticketId = issueReadingTicket(store, key, responseType, sub.planKey, spread);
     return { allowed: true, responseType, planKey: sub.planKey, responseTypeOptions: options, ticketId };
   }
   if (!FREE_ALLOWED_SPREADS.includes(spread)) {
@@ -693,7 +816,7 @@ async function resolveReadingAccess(store: any, email: string, spread: string, p
     return { allowed: false, reason: "daily-limit" };
   }
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
-  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, "vela");
+  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, "vela", spread);
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: "vela", ticketId };
 }
 
@@ -1165,6 +1288,12 @@ export default async (req: Request) => {
           return json(401, { error: "Contraseña de administración incorrecta o faltante." });
         }
         return json(200, buildAiUsageSummary(store));
+      }
+      if (action === "get-experiencia-summary") {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get("setupToken") || "" })) {
+          return json(401, { error: "Contraseña de administración incorrecta o faltante." });
+        }
+        return json(200, buildExperienciaLecturaSummary(store));
       }
       return json(404, { error: "Acción GET desconocida." });
     }
@@ -1700,6 +1829,48 @@ export default async (req: Request) => {
       store.settings.lastNewsletterSentDate = today;
       await saveStore(store);
       return json(200, { sent, failed, total: recipients.length, cardName: content.cardName, preview: content.html });
+    }
+
+    if (action === "send-monthly-admin-report") {
+      // 2026-09-10 (a pedido de Christian): reporte mensual por email con
+      // los datos de "Inteligencia Artificial", "Experiencia de lectura"
+      // y "Negocio y datos" -- llamable de dos formas: (a) a mano desde
+      // Setup, con sesion de administracion (requireAdmin), o (b) por el
+      // cron mensual de Netlify (netlify/functions/monthly-admin-report.mts),
+      // que se autentica con CRON_SECRET en vez de un login real (no hay
+      // navegador ahi para loguearse). Sin CRON_SECRET configurado, la
+      // via (b) simplemente no puede llamar a esta accion -- solo (a).
+      const cronSecret = Netlify.env.get("CRON_SECRET");
+      const isCron = !!cronSecret && payload.cronSecret === cronSecret;
+      const adminEmail = isCron ? "cron" : requireAdmin(store, payload, action);
+      if (!adminEmail) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
+      const monthNow = monthKey();
+      if (store.settings.lastMonthlyReportSent === monthNow && !payload.force) {
+        return json(200, { skipped: true, reason: "already-sent-this-month" });
+      }
+      const ia = buildAiUsageSummary(store);
+      const negocio = buildReports(store);
+      const experiencia = buildExperienciaLecturaSummary(store);
+      const html = monthlyAdminReportHtml(monthNow, ia, negocio, experiencia);
+      const attachments = [
+        { filename: "reporte-ia.csv", content: Buffer.from(iaSummaryToCsv(ia)).toString("base64"), contentType: "text/csv" },
+        { filename: "reporte-experiencia-lectura.csv", content: Buffer.from(experienciaSummaryToCsv(experiencia)).toString("base64"), contentType: "text/csv" },
+        { filename: "reporte-negocio-datos.csv", content: Buffer.from(negocioSummaryToCsv(negocio)).toString("base64"), contentType: "text/csv" },
+      ];
+      const recipients = Array.isArray(store.settings.powerUsers) ? store.settings.powerUsers : [];
+      let sent = 0;
+      const failed: string[] = [];
+      for (const to of recipients) {
+        try {
+          await resendSend(to, `Lux Astral · Reporte mensual — ${monthNow}`, html, { attachments });
+          sent++;
+        } catch (e) {
+          failed.push(to);
+        }
+      }
+      store.settings.lastMonthlyReportSent = monthNow;
+      await saveStore(store);
+      return json(200, { sent, failed, total: recipients.length, month: monthNow });
     }
 
     if (action === "save-ai-pricing") {

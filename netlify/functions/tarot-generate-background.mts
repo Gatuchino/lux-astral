@@ -71,7 +71,7 @@ function bookingStore() {
   return getStore({ name: "booking", consistency: "strong" });
 }
 
-async function logAiUsage(entry: { kind: string; provider: string; model: string; inputTokens?: number; outputTokens?: number; characters?: number }) {
+async function logAiUsage(entry: { kind: string; provider: string; model: string; inputTokens?: number; outputTokens?: number; characters?: number; spread?: string }) {
   // Fire-and-forget desde el llamador: si esto falla, nunca debe tumbar la
   // entrega de la lectura -- ver el try/catch en el handler mas abajo.
   const store = bookingStore();
@@ -89,6 +89,7 @@ async function logAiUsage(entry: { kind: string; provider: string; model: string
     inputTokens: entry.inputTokens || 0,
     outputTokens: entry.outputTokens || 0,
     characters: entry.characters || 0,
+    spread: entry.spread ? String(entry.spread).slice(0, 20) : '',
     costUsd,
   });
   const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000; // 180 dias
@@ -210,7 +211,7 @@ export default async (req: Request, context: any) => {
   } catch (e) {
     return; // el llamador no lee esta respuesta -- ver comentario arriba
   }
-  const { jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp, isFreeUser } = payload || {};
+  const { jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp, isFreeUser, spread } = payload || {};
   if (!jobId || !Array.isArray(prompts) || prompts.length === 0) return;
 
   // 2026-09-10 (a pedido de Christian): las usuarias sin plan pago (Vela,
@@ -282,7 +283,7 @@ export default async (req: Request, context: any) => {
       const inputTokens = results.reduce((sum, r) => sum + (r.inputTokens || 0), 0);
       const outputTokens = results.reduce((sum, r) => sum + (r.outputTokens || 0), 0);
       const kind = isFollowUp ? "reading-followup" : `reading-tipo-${readingType || "?"}`;
-      await logAiUsage({ kind, provider: providerId, model: chosenModel, inputTokens, outputTokens });
+      await logAiUsage({ kind, provider: providerId, model: chosenModel, inputTokens, outputTokens, spread });
     } catch (e) {
       // silencioso -- el usuario ya tiene su lectura, no hay nada que mostrarle.
     }

@@ -284,7 +284,7 @@ async function handleInterpret(req, res) {
         const outputTokens = results.reduce((sum, r) => sum + (r.outputTokens || 0), 0);
         const kind = isFollowUp ? 'reading-followup' : `reading-tipo-${readingType || '?'}`;
         const usageStore = loadBookingStore();
-        logAiUsage(usageStore, { kind, provider: providerId, model: chosenModel, inputTokens, outputTokens });
+        logAiUsage(usageStore, { kind, provider: providerId, model: chosenModel, inputTokens, outputTokens, spread: ticket.spread || '' });
         saveBookingStore(usageStore);
       } catch (e) {
         // silencioso -- el usuario ya tiene su lectura, no hay nada que mostrarle.
@@ -527,6 +527,7 @@ function logAiUsage(store, entry) {
     inputTokens: entry.inputTokens || 0,
     outputTokens: entry.outputTokens || 0,
     characters: entry.characters || 0,
+    spread: entry.spread ? String(entry.spread).slice(0, 20) : '',
     costUsd,
   });
   const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
@@ -573,11 +574,129 @@ function buildAiUsageSummary(store) {
     defaultPricing: DEFAULT_AI_PRICING,
   };
 }
+// 2026-09-10 (a pedido de Christian): reporte de "Experiencia de lectura"
+// -- ver netlify/functions/booking.mts para el comentario completo, misma
+// logica aca (arma el resumen a partir del mismo aiUsageLog).
+function buildExperienciaLecturaSummary(store) {
+  const log = Array.isArray(store.aiUsageLog) ? store.aiUsageLog : [];
+  const bySpread = {};
+  const byResponseType = {};
+  let initialReadings = 0;
+  let followUps = 0;
+  log.forEach((e) => {
+    if (e.kind === 'reading-followup') {
+      followUps += 1;
+      return;
+    }
+    const m = /^reading-tipo-(.+)$/.exec(e.kind || '');
+    if (!m) return;
+    initialReadings += 1;
+    byResponseType[m[1]] = (byResponseType[m[1]] || 0) + 1;
+    if (e.spread) bySpread[e.spread] = (bySpread[e.spread] || 0) + 1;
+  });
+  return {
+    initialReadings,
+    followUps,
+    avgFollowUpsPerReading: initialReadings ? followUps / initialReadings : 0,
+    bySpread,
+    byResponseType,
+  };
+}
 // 2026-09-08 (a pedido de Christian): panel "Informes" en Setup — accesos
 // por usuario, tiempo aproximado en la plataforma, secciones visitadas, y
 // los movimientos de negocio (altas/bajas de membresía, ingresos). Nunca
 // incluye el contenido de una lectura ni las preguntas que hizo alguien —
 // eso sigue siendo confidencial de cada usuaria, según pidió Christian.
+// 2026-09-10 (a pedido de Christian): reporte mensual por email -- CSV +
+// HTML a partir de los 3 resumenes de arriba. Ver netlify/functions/booking.mts
+// para el comentario completo, misma logica aca.
+const SPREAD_LABELS_ES = {
+  daily: 'Carta del día', three: 'Pasado / Presente / Futuro', love: 'Tirada del amor',
+  celtic: 'Cruz Celta', work: 'Camino Profesional', free: 'Pregunta Libre',
+  decision: 'Decisión', six: 'Camino de Seis Cartas', year: 'Rueda del Año',
+};
+const RESPONSE_TYPE_LABELS_ES = {
+  '1': 'Tipo 1 · Rápida', '2': 'Tipo 2 · Breve (gratis)', '3': 'Tipo 3 · Elaborada',
+  '4': 'Tipo 4 · Extensa con seguimiento', '5': 'Tipo 5 · Informe Oráculo',
+};
+function csvEscape(v) {
+  const s = String(v === undefined || v === null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function rowsToCsv(rows) {
+  return rows.map((r) => r.map(csvEscape).join(',')).join('\n');
+}
+function iaSummaryToCsv(ia) {
+  const rows = [['Tipo de consulta', 'Consultas', 'Tokens entrada', 'Tokens salida', 'Costo USD']];
+  Object.keys(ia.byKind || {}).forEach((k) => {
+    const e = ia.byKind[k];
+    rows.push([k, e.queries, e.inputTokens, e.outputTokens, e.costUsd.toFixed(4)]);
+  });
+  rows.push([]);
+  rows.push(['Proveedor / modelo', 'Consultas', 'Tokens entrada', 'Tokens salida', 'Costo USD']);
+  Object.keys(ia.byModel || {}).forEach((k) => {
+    const e = ia.byModel[k];
+    rows.push([k, e.queries, e.inputTokens, e.outputTokens, e.costUsd.toFixed(4)]);
+  });
+  rows.push([]);
+  rows.push(['Total', ia.totals.queries, ia.totals.inputTokens, ia.totals.outputTokens, ia.totals.costUsd.toFixed(4)]);
+  return rowsToCsv(rows);
+}
+function experienciaSummaryToCsv(experiencia) {
+  const rows = [['Tirada', 'Veces elegida']];
+  Object.keys(experiencia.bySpread || {}).forEach((k) => {
+    rows.push([SPREAD_LABELS_ES[k] || k, experiencia.bySpread[k]]);
+  });
+  rows.push([]);
+  rows.push(['Tipo de respuesta', 'Veces pedido']);
+  Object.keys(experiencia.byResponseType || {}).forEach((k) => {
+    rows.push([RESPONSE_TYPE_LABELS_ES[k] || `Tipo ${k}`, experiencia.byResponseType[k]]);
+  });
+  rows.push([]);
+  rows.push(['Lecturas iniciales', experiencia.initialReadings]);
+  rows.push(['Preguntas de seguimiento', experiencia.followUps]);
+  rows.push(['Promedio de seguimiento por lectura', experiencia.avgFollowUpsPerReading.toFixed(2)]);
+  return rowsToCsv(rows);
+}
+function negocioSummaryToCsv(negocio) {
+  const rows = [['Email', 'Último acceso', 'Sesiones', 'Minutos en plataforma', 'Eventos']];
+  (negocio.users || []).forEach((u) => {
+    rows.push([u.email, new Date(u.lastAccess).toISOString(), u.sessions, u.minutesOnPlatform, u.eventCount]);
+  });
+  return rowsToCsv(rows);
+}
+function htmlTable(headers, rows) {
+  const th = headers.map((h) => `<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #4a3a6a;color:#d4a85a;font-size:12px;">${h}</th>`).join('');
+  const trs = rows.map((r) => `<tr>${r.map((c) => `<td style="padding:6px 10px;border-bottom:1px solid #2a2048;font-size:13px;">${c}</td>`).join('')}</tr>`).join('');
+  return `<table style="border-collapse:collapse;width:100%;margin:10px 0 22px;"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+}
+function monthlyAdminReportHtml(monthNow, ia, negocio, experiencia) {
+  const iaRows = Object.keys(ia.byKind || {}).map((k) => [k, ia.byKind[k].queries, `$${ia.byKind[k].costUsd.toFixed(2)}`]);
+  const expSpreadRows = Object.keys(experiencia.bySpread || {}).map((k) => [SPREAD_LABELS_ES[k] || k, experiencia.bySpread[k]]);
+  const expTypeRows = Object.keys(experiencia.byResponseType || {}).map((k) => [RESPONSE_TYPE_LABELS_ES[k] || `Tipo ${k}`, experiencia.byResponseType[k]]);
+  const topUsers = (negocio.users || []).slice(0, 15).map((u) => [u.email, u.sessions, u.minutesOnPlatform]);
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;max-width:640px;">
+    <p style="color:#b3a8c8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Lux Astral · Reporte mensual</p>
+    <h1 style="color:#d4a85a;font-size:22px;margin-top:4px;">${monthNow}</h1>
+    <p style="font-size:12px;color:#8a82a0;">El detalle completo va adjunto en 3 archivos CSV (Inteligencia Artificial, Experiencia de lectura, Negocio y datos).</p>
+
+    <h2 style="color:#d4a85a;font-size:15px;margin-top:26px;">✨ Inteligencia Artificial</h2>
+    <p style="font-size:13px;color:#b3a8c8;">Costo total del mes: <strong style="color:#f0e2c0;">$${ia.monthCostUsd.toFixed(2)}</strong> · ${ia.totals.queries} consultas en total (180 días de historial)</p>
+    ${htmlTable(['Tipo de consulta', 'Consultas', 'Costo'], iaRows)}
+
+    <h2 style="color:#d4a85a;font-size:15px;">🔮 Experiencia de lectura</h2>
+    <p style="font-size:13px;color:#b3a8c8;">${experiencia.initialReadings} lecturas iniciales · ${experiencia.followUps} preguntas de seguimiento (promedio ${experiencia.avgFollowUpsPerReading.toFixed(2)} por lectura)</p>
+    ${htmlTable(['Tirada', 'Veces elegida'], expSpreadRows)}
+    ${htmlTable(['Tipo de respuesta', 'Veces pedido'], expTypeRows)}
+
+    <h2 style="color:#d4a85a;font-size:15px;">📊 Negocio y datos</h2>
+    <p style="font-size:13px;color:#b3a8c8;">${negocio.totalEvents} eventos registrados · ${(negocio.users || []).length} personas con actividad</p>
+    ${htmlTable(['Email', 'Sesiones', 'Minutos'], topUsers)}
+
+    <p style="margin-top:28px;font-size:11px;color:#6b6188;">Reporte automático mensual de Lux Astral. Configurable desde Setup → Negocio y datos.</p>
+  </div>`;
+}
+
 function buildReports(store) {
   const events = Array.isArray(store.eventLog) ? store.eventLog : [];
   const SESSION_GAP_MS = 30 * 60 * 1000; // más de 30 min sin actividad = nueva sesión
@@ -1030,13 +1149,14 @@ function pruneReadingTickets(store) {
     if (now - store.readingTickets[id].createdAt > READING_TICKET_TTL_MS) delete store.readingTickets[id];
   }
 }
-function issueReadingTicket(store, email, responseType, planKey) {
+function issueReadingTicket(store, email, responseType, planKey, spread) {
   pruneReadingTickets(store);
   const ticketId = crypto.randomUUID();
   store.readingTickets[ticketId] = {
     email,
     responseType,
     planKey, // 'vela' (gratis) o el plan pago -- decide el modelo de IA server-side, ver tarot-generate-background.mts / handleInterpret
+    spread: spread || '', // 2026-09-10: solo para el reporte de "Experiencia de lectura" (que tirada se usa mas)
     maxFollowUps: RESPONSE_TYPE_MAX_FOLLOWUPS[responseType] || 0,
     followUpsUsed: 0,
     createdAt: Date.now(),
@@ -1075,7 +1195,7 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
     const responseType = options.includes(preferredResponseType)
       ? preferredResponseType
       : PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
-    const ticketId = issueReadingTicket(store, key, responseType, sub.planKey);
+    const ticketId = issueReadingTicket(store, key, responseType, sub.planKey, spread);
     return { allowed: true, responseType, planKey: sub.planKey, responseTypeOptions: options, ticketId };
   }
   // Plan Vela (gratis): 1 consulta al día, solo carta del día o tirada de 3.
@@ -1089,7 +1209,7 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
     return { allowed: false, reason: 'daily-limit' };
   }
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
-  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, 'vela');
+  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, 'vela', spread);
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: 'vela', ticketId };
 }
 
@@ -1481,6 +1601,14 @@ async function handleBooking(req, res, url) {
       if (action === 'get-ai-usage-summary') {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
         return sendJson(res, 200, buildAiUsageSummary(store));
+      }
+      if (action === 'get-reports') {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+        return sendJson(res, 200, buildReports(store));
+      }
+      if (action === 'get-experiencia-summary') {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+        return sendJson(res, 200, buildExperienciaLecturaSummary(store));
       }
       if (action === 'subscription-plans') {
         return sendJson(res, 200, { plans: store.settings.paypalPlanIds || null, paypalClientId: process.env.PAYPAL_CLIENT_ID || '' });
@@ -2109,6 +2237,43 @@ async function handleBooking(req, res, url) {
       store.settings.lastNewsletterSentDate = today;
       saveBookingStore(store);
       return sendJson(res, 200, { sent, failed, total: recipients.length, cardName: content.cardName, preview: content.html });
+    }
+
+    if (action === 'send-monthly-admin-report') {
+      // 2026-09-10 (a pedido de Christian) -- ver netlify/functions/booking.mts
+      // y monthly-admin-report.mts para el comentario completo. En local
+      // no hay Netlify Scheduled Functions, así que esto es solo el botón
+      // manual "Enviar prueba ahora" de Setup (requireAdmin) -- no hay
+      // disparo automático mensual en desarrollo.
+      if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+      const monthNow = monthKey();
+      if (store.settings.lastMonthlyReportSent === monthNow && !payload.force) {
+        return sendJson(res, 200, { skipped: true, reason: 'already-sent-this-month' });
+      }
+      const ia = buildAiUsageSummary(store);
+      const negocio = buildReports(store);
+      const experiencia = buildExperienciaLecturaSummary(store);
+      const html = monthlyAdminReportHtml(monthNow, ia, negocio, experiencia);
+      const attachments = [
+        { filename: 'reporte-ia.csv', content: Buffer.from(iaSummaryToCsv(ia)).toString('base64'), contentType: 'text/csv' },
+        { filename: 'reporte-experiencia-lectura.csv', content: Buffer.from(experienciaSummaryToCsv(experiencia)).toString('base64'), contentType: 'text/csv' },
+        { filename: 'reporte-negocio-datos.csv', content: Buffer.from(negocioSummaryToCsv(negocio)).toString('base64'), contentType: 'text/csv' },
+      ];
+      const recipients = Array.isArray(store.settings.powerUsers) ? store.settings.powerUsers : [];
+      let sent = 0;
+      const failed = [];
+      for (const to of recipients) {
+        try {
+          await resendSend(to, `Lux Astral · Reporte mensual — ${monthNow}`, html, { attachments });
+          sent++;
+        } catch (e) {
+          console.error('[monthly-admin-report] fallo el envio a', to, '->', e.message, e.detail || '');
+          failed.push(to);
+        }
+      }
+      store.settings.lastMonthlyReportSent = monthNow;
+      saveBookingStore(store);
+      return sendJson(res, 200, { sent, failed, total: recipients.length, month: monthNow });
     }
 
     if (action === 'save-ai-pricing') {

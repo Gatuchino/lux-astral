@@ -56,7 +56,7 @@ async function consumeReadingTicket(ticketId: string | undefined, isFollowUp: bo
     await saveBookingStoreForTicket(store);
   }
   const isFreeUser = !PAID_PLAN_KEYS.includes(ticket.planKey);
-  return { ok: true, isFreeUser };
+  return { ok: true, isFreeUser, spread: ticket.spread || "" };
 }
 
 function jobsStore() {
@@ -106,7 +106,7 @@ async function handler(req: Request, context: any) {
     await fetch(bgUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp, isFreeUser: ticketCheck.isFreeUser }),
+      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp, isFreeUser: ticketCheck.isFreeUser, spread: ticketCheck.spread }),
     });
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {

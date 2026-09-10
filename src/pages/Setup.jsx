@@ -29,6 +29,26 @@ const AI_USAGE_KIND_LABELS = {
   tts: { es: 'Voz (ElevenLabs)', en: 'Voice (ElevenLabs)' },
 };
 const AI_USAGE_PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', glm: 'GLM (Z.ai)', gemini: 'Google Gemini', groq: 'Groq', elevenlabs: 'ElevenLabs' };
+// Etiquetas para el reporte de "Experiencia de lectura" -- mismos ids que
+// SPREADS en Reading.jsx / src/data/pdf.js y RESPONSE_TYPES en Reading.jsx.
+const SPREAD_LABELS = {
+  daily: { es: 'Carta del día', en: 'Card of the day' },
+  three: { es: 'Pasado / Presente / Futuro', en: 'Past / Present / Future' },
+  love: { es: 'Tirada del amor', en: 'Love spread' },
+  celtic: { es: 'Cruz Celta', en: 'Celtic Cross' },
+  work: { es: 'Camino Profesional', en: 'Career path' },
+  free: { es: 'Pregunta Libre', en: 'Free question' },
+  decision: { es: 'Decisión', en: 'Decision' },
+  six: { es: 'Camino de Seis Cartas', en: 'Six-card path' },
+  year: { es: 'Rueda del Año', en: 'Wheel of the Year' },
+};
+const RESPONSE_TYPE_LABELS = {
+  '1': { es: 'Tipo 1 · Rápida', en: 'Type 1 · Quick' },
+  '2': { es: 'Tipo 2 · Breve (gratis)', en: 'Type 2 · Brief (free)' },
+  '3': { es: 'Tipo 3 · Elaborada', en: 'Type 3 · Elaborate' },
+  '4': { es: 'Tipo 4 · Extensa con seguimiento', en: 'Type 4 · Extensive with follow-up' },
+  '5': { es: 'Tipo 5 · Informe Oráculo', en: 'Type 5 · Oráculo report' },
+};
 
 // 2026-09-10 (a pedido de Christian): el panel tenia 19 secciones en una
 // sola pantalla larguisima -- ahora se agrupan en categorias con una
@@ -211,6 +231,237 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       .finally(() => setAiUsageLoading(false));
   };
   React.useEffect(() => { if (session) loadAiUsage(); }, [session]);
+
+  // ---------- Experiencia de lectura: reporte (a pedido de Christian) ----------
+  const [experienciaSummary, setExperienciaSummary] = React.useState(null);
+  const [experienciaLoading, setExperienciaLoading] = React.useState(false);
+  const [experienciaError, setExperienciaError] = React.useState('');
+  const loadExperienciaSummary = () => {
+    if (!session) return;
+    setExperienciaLoading(true);
+    setExperienciaError('');
+    window.arcanaGetExperienciaSummary()
+      .then((res) => setExperienciaSummary(res))
+      .catch((e) => setExperienciaError((e && e.message) || (es ? 'No se pudo cargar el resumen.' : "Couldn't load the summary.")))
+      .finally(() => setExperienciaLoading(false));
+  };
+  React.useEffect(() => { if (session) loadExperienciaSummary(); }, [session]);
+
+  // ---------- Reporte mensual por email: boton de prueba manual ----------
+  const [monthlyReportSending, setMonthlyReportSending] = React.useState(false);
+  const [monthlyReportResult, setMonthlyReportResult] = React.useState(null);
+  const sendMonthlyReportNow = () => {
+    setMonthlyReportSending(true);
+    setMonthlyReportResult(null);
+    window.arcanaSendMonthlyReportNow(true)
+      .then((res) => setMonthlyReportResult(res))
+      .catch((e) => setMonthlyReportResult({ error: (e && e.message) || (es ? 'No se pudo enviar el reporte.' : "Couldn't send the report.") }))
+      .finally(() => setMonthlyReportSending(false));
+  };
+
+
+  // ---------- Generar reporte (PDF / Excel-CSV) para las categorías
+  // Inteligencia Artificial, Experiencia de lectura y Negocio y datos
+  // (a pedido de Christian, 2026-09-10). Exporta lo mismo que ya se ve
+  // en pantalla en cada categoría, tal cual.
+  const exportSetupCsv = (filename, rows) => {
+    const escapeCell = (v) => {
+      const s = String(v === undefined || v === null ? '' : v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const csv = rows.map((r) => r.map(escapeCell).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  const exportSetupPdf = (title, sections) => {
+    const jspdfNs = window.jspdf;
+    if (!jspdfNs || !jspdfNs.jsPDF) {
+      alert(es ? 'No se pudo cargar el generador de PDF. Revisa tu conexión y vuelve a intentar.' : 'Could not load the PDF generator. Check your connection and try again.');
+      return;
+    }
+    const { jsPDF } = jspdfNs;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const marginX = 48;
+    const maxWidth = 500;
+    let y = 64;
+    const addLine = (text, size, bold, gapAfter, gold) => {
+      doc.setFontSize(size);
+      doc.setFont(undefined, bold ? 'bold' : 'normal');
+      doc.setTextColor(gold ? 180 : 30, gold ? 130 : 30, gold ? 40 : 30);
+      const lines = doc.splitTextToSize(String(text || ''), maxWidth);
+      lines.forEach((line) => {
+        if (y > 770) { doc.addPage(); y = 64; }
+        doc.text(line, marginX, y);
+        y += size * 1.3;
+      });
+      y += gapAfter;
+    };
+    const addTable = (headers, rows, colWidths) => {
+      if (y > 730) { doc.addPage(); y = 64; }
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(30, 30, 30);
+      let x = marginX;
+      headers.forEach((h, i) => { doc.text(String(h), x, y); x += colWidths[i]; });
+      y += 6;
+      doc.setDrawColor(180, 130, 40);
+      doc.line(marginX, y, marginX + colWidths.reduce((a, b) => a + b, 0), y);
+      y += 12;
+      doc.setFont(undefined, 'normal');
+      rows.forEach((r) => {
+        if (y > 770) { doc.addPage(); y = 64; }
+        x = marginX;
+        r.forEach((c, i) => {
+          const s = doc.splitTextToSize(String(c === undefined || c === null ? '' : c), colWidths[i] - 6)[0] || '';
+          doc.text(s, x, y);
+          x += colWidths[i];
+        });
+        y += 14;
+      });
+      y += 14;
+    };
+    addLine('LUX ASTRAL', 18, true, 2, true);
+    addLine(title, 13, true, 4, false);
+    addLine(new Date().toLocaleDateString(es ? 'es-CL' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' }), 10, false, 18, false);
+    sections.forEach((sec) => {
+      addLine(sec.heading, 13, true, 6, true);
+      if (sec.note) addLine(sec.note, 10, false, 10, false);
+      if (sec.rows && sec.rows.length) addTable(sec.headers, sec.rows, sec.colWidths);
+      else addLine(es ? '(sin datos)' : '(no data)', 10, false, 10, false);
+    });
+    doc.save(`lux-astral-${(title || 'reporte').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const buildIaReportRows = () => {
+    if (!aiUsage) return null;
+    const kindRows = Object.keys(aiUsage.byKind || {}).map((k) => {
+      const e = aiUsage.byKind[k];
+      return [AI_USAGE_KIND_LABELS[k]?.[lang] || k, e.queries, e.inputTokens, e.outputTokens, `$${e.costUsd.toFixed(4)}`];
+    });
+    const modelRows = Object.keys(aiUsage.byModel || {}).map((k) => {
+      const e = aiUsage.byModel[k];
+      return [k, e.queries, e.inputTokens, e.outputTokens, `$${e.costUsd.toFixed(4)}`];
+    });
+    return { kindRows, modelRows };
+  };
+  const exportIaCsv = () => {
+    const built = buildIaReportRows();
+    if (!built) return;
+    const rows = [
+      [es ? 'Tipo de consulta' : 'Query type', es ? 'Consultas' : 'Queries', es ? 'Tokens entrada' : 'Input tokens', es ? 'Tokens salida' : 'Output tokens', 'Costo USD'],
+      ...built.kindRows,
+      [],
+      [es ? 'Proveedor / modelo' : 'Provider / model', es ? 'Consultas' : 'Queries', es ? 'Tokens entrada' : 'Input tokens', es ? 'Tokens salida' : 'Output tokens', 'Costo USD'],
+      ...built.modelRows,
+      [],
+      [es ? 'Total' : 'Total', aiUsage.totals.queries, aiUsage.totals.inputTokens, aiUsage.totals.outputTokens, `$${aiUsage.totals.costUsd.toFixed(4)}`],
+    ];
+    exportSetupCsv('lux-astral-ia.csv', rows);
+  };
+  const exportIaPdf = () => {
+    const built = buildIaReportRows();
+    if (!built) return;
+    exportSetupPdf(es ? 'Inteligencia Artificial' : 'Artificial Intelligence', [
+      {
+        heading: es ? 'Por tipo de consulta' : 'By query type',
+        headers: [es ? 'Tipo' : 'Type', es ? 'Consultas' : 'Queries', 'In', 'Out', 'USD'],
+        colWidths: [220, 70, 70, 70, 70],
+        rows: built.kindRows,
+      },
+      {
+        heading: es ? 'Por proveedor / modelo' : 'By provider / model',
+        headers: [es ? 'Modelo' : 'Model', es ? 'Consultas' : 'Queries', 'In', 'Out', 'USD'],
+        colWidths: [220, 70, 70, 70, 70],
+        rows: built.modelRows,
+      },
+      {
+        heading: es ? 'Totales' : 'Totals',
+        note: `${es ? 'Costo del mes' : 'This month'}: $${aiUsage.monthCostUsd.toFixed(2)} · ${es ? 'Costo de hoy' : 'Today'}: $${aiUsage.todayCostUsd.toFixed(2)} · ${aiUsage.totals.queries} ${es ? 'consultas en 180 días' : 'queries in 180 days'}`,
+      },
+    ]);
+  };
+
+  const buildExperienciaReportRows = () => {
+    if (!experienciaSummary) return null;
+    const spreadRows = Object.keys(experienciaSummary.bySpread || {}).map((k) => [SPREAD_LABELS[k]?.[lang] || k, experienciaSummary.bySpread[k]]);
+    const typeRows = Object.keys(experienciaSummary.byResponseType || {}).map((k) => [RESPONSE_TYPE_LABELS[k]?.[lang] || k, experienciaSummary.byResponseType[k]]);
+    return { spreadRows, typeRows };
+  };
+  const exportExperienciaCsv = () => {
+    const built = buildExperienciaReportRows();
+    if (!built) return;
+    const rows = [
+      [es ? 'Tirada' : 'Spread', es ? 'Veces elegida' : 'Times chosen'],
+      ...built.spreadRows,
+      [],
+      [es ? 'Tipo de respuesta' : 'Response type', es ? 'Veces pedido' : 'Times requested'],
+      ...built.typeRows,
+      [],
+      [es ? 'Lecturas iniciales' : 'Initial readings', experienciaSummary.initialReadings],
+      [es ? 'Preguntas de seguimiento' : 'Follow-up questions', experienciaSummary.followUps],
+      [es ? 'Promedio de seguimiento por lectura' : 'Average follow-ups per reading', experienciaSummary.avgFollowUpsPerReading.toFixed(2)],
+      [],
+      [es ? 'Estilo visual — Lectura' : 'Visual style — Reading', variants?.library || ''],
+      [es ? 'Estilo visual — Chat' : 'Visual style — Chat', variants?.chat || ''],
+      [es ? 'Estilo visual — Videollamada' : 'Visual style — Video call', variants?.videocall || ''],
+    ];
+    exportSetupCsv('lux-astral-experiencia-lectura.csv', rows);
+  };
+  const exportExperienciaPdf = () => {
+    const built = buildExperienciaReportRows();
+    if (!built) return;
+    exportSetupPdf(es ? 'Experiencia de lectura' : 'Reading experience', [
+      {
+        heading: es ? 'Tiradas más usadas' : 'Most used spreads',
+        headers: [es ? 'Tirada' : 'Spread', es ? 'Veces' : 'Times'],
+        colWidths: [340, 100],
+        rows: built.spreadRows,
+      },
+      {
+        heading: es ? 'Tipos de respuesta más pedidos' : 'Most requested response types',
+        headers: [es ? 'Tipo' : 'Type', es ? 'Veces' : 'Times'],
+        colWidths: [340, 100],
+        rows: built.typeRows,
+      },
+      {
+        heading: es ? 'Preguntas de seguimiento' : 'Follow-up questions',
+        note: `${experienciaSummary.initialReadings} ${es ? 'lecturas iniciales' : 'initial readings'} · ${experienciaSummary.followUps} ${es ? 'preguntas de seguimiento' : 'follow-up questions'} · ${es ? 'promedio' : 'average'} ${experienciaSummary.avgFollowUpsPerReading.toFixed(2)} ${es ? 'por lectura' : 'per reading'}`,
+      },
+      {
+        heading: es ? 'Estilo visual activo (este navegador)' : 'Active visual style (this browser)',
+        note: `${es ? 'Lectura' : 'Reading'}: ${variants?.library || '—'} · Chat: ${variants?.chat || '—'} · ${es ? 'Videollamada' : 'Video call'}: ${variants?.videocall || '—'}`,
+      },
+    ]);
+  };
+
+  const exportNegocioCsv = () => {
+    if (!reports) return;
+    const rows = [
+      ['Email', es ? 'Último acceso' : 'Last access', es ? 'Sesiones' : 'Sessions', es ? 'Minutos en plataforma' : 'Minutes on platform', es ? 'Eventos' : 'Events'],
+      ...(reports.users || []).map((u) => [u.email, new Date(u.lastAccess).toLocaleString(es ? 'es-CL' : 'en-US'), u.sessions, u.minutesOnPlatform, u.eventCount]),
+    ];
+    exportSetupCsv('lux-astral-negocio-datos.csv', rows);
+  };
+  const exportNegocioPdf = () => {
+    if (!reports) return;
+    exportSetupPdf(es ? 'Negocio y datos' : 'Business & data', [
+      {
+        heading: es ? 'Usuarias con actividad' : 'Users with activity',
+        note: `${reports.totalEvents} ${es ? 'eventos registrados' : 'events recorded'} · ${(reports.users || []).length} ${es ? 'personas' : 'people'}`,
+        headers: ['Email', es ? 'Sesiones' : 'Sessions', es ? 'Minutos' : 'Minutes'],
+        colWidths: [280, 90, 90],
+        rows: (reports.users || []).slice(0, 60).map((u) => [u.email, u.sessions, u.minutesOnPlatform]),
+      },
+    ]);
+  };
+
   const saveAiPricing = () => {
     setAiPricingSaving(true);
     window.arcanaSaveAiPricing(aiPricingDraft)
@@ -870,6 +1121,44 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
               return c ? `${c.icon} ${es ? c.label_es : c.label_en}` : '';
             })()}
           </h2>
+        </div>
+      )}
+
+      {activeCategory === 'ia' && (
+        <div className="setup-report-row">
+          <span className="setup-report-label">{es ? '📄 Generar reporte:' : '📄 Generate report:'}</span>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportIaPdf} disabled={!aiUsage}>PDF</button>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportIaCsv} disabled={!aiUsage}>Excel (CSV)</button>
+          {!aiUsage && <span className="setup-report-hint italic">{es ? 'Cargando datos…' : 'Loading data…'}</span>}
+        </div>
+      )}
+      {activeCategory === 'experiencia' && (
+        <div className="setup-report-row">
+          <span className="setup-report-label">{es ? '📄 Generar reporte:' : '📄 Generate report:'}</span>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportExperienciaPdf} disabled={!experienciaSummary}>PDF</button>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportExperienciaCsv} disabled={!experienciaSummary}>Excel (CSV)</button>
+          {experienciaLoading && <span className="setup-report-hint italic">{es ? 'Cargando datos…' : 'Loading data…'}</span>}
+          {experienciaError && <span className="setup-report-hint" style={{ color: '#e08a8a' }}>{experienciaError}</span>}
+        </div>
+      )}
+      {activeCategory === 'negocio' && (
+        <div className="setup-report-row" style={{ flexWrap: 'wrap' }}>
+          <span className="setup-report-label">{es ? '📄 Generar reporte:' : '📄 Generate report:'}</span>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportNegocioPdf} disabled={!reports}>PDF</button>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportNegocioCsv} disabled={!reports}>Excel (CSV)</button>
+          <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', margin: '0 4px' }} />
+          <button className="btn btn-ghost setup-report-btn" onClick={sendMonthlyReportNow} disabled={monthlyReportSending}>
+            {monthlyReportSending ? (es ? 'Enviando…' : 'Sending…') : (es ? '✉ Enviar prueba del reporte mensual' : '✉ Send monthly report test')}
+          </button>
+          {monthlyReportResult && (
+            <span className="setup-report-hint italic">
+              {monthlyReportResult.error
+                ? monthlyReportResult.error
+                : monthlyReportResult.skipped
+                  ? (es ? 'Ya se había enviado este mes — de todos modos, se reenvía ahora.' : 'Already sent this month — resending anyway.')
+                  : (es ? `Enviado a ${monthlyReportResult.sent}/${monthlyReportResult.total} cuentas.` : `Sent to ${monthlyReportResult.sent}/${monthlyReportResult.total} accounts.`)}
+            </span>
+          )}
         </div>
       )}
 
@@ -2228,6 +2517,13 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         .setup-category-heading {
           font-family: 'Cinzel', serif; font-size: 20px; color: var(--gold); margin: 0;
         }
+
+        .setup-report-row {
+          display: flex; align-items: center; gap: 10px; margin-bottom: 28px; flex-wrap: wrap;
+        }
+        .setup-report-label { font-size: 13px; color: var(--ink-soft); }
+        .setup-report-btn { padding: 7px 14px; font-size: 12.5px; }
+        .setup-report-hint { font-size: 12.5px; color: var(--ink-mute); }
         .setup-sub { font-size: 18px; color: var(--ink-soft); margin-top: 10px; max-width: 640px; }
         .setup-warning {
           display: flex; gap: 14px; align-items: flex-start;
