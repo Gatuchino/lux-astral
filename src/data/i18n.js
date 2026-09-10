@@ -315,7 +315,7 @@ window.I18N = {
     profile_cofre_sub: "Tus lecturas más significativas, guardadas para volver a ellas.",
     profile_cofre_add: "Guardar en el Cofre",
     profile_cofre_remove: "Quitar del Cofre",
-    profile_cofre_label_ph: "Ponele una etiqueta (ej. Mi despertar)…",
+    profile_cofre_label_ph: "Ponle una etiqueta (ej. Mi despertar)…",
     profile_cofre_empty: "Aún no guardaste ninguna respuesta especial. Desde tu historial, toca ✦ para guardar una aquí.",
     profile_stats_readings: "Lecturas",
     profile_stats_days: "Días acompañándote",

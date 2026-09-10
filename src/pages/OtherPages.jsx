@@ -1468,6 +1468,11 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
   // El Cofre de Respuestas es un beneficio solo de Estrella y Oráculo.
   const isCofreEligible = !!(planInfo && planInfo.isSubscriber && ['estrella', 'oraculo'].includes(planInfo.planKey));
 
+  // 2026-09-10 (rediseño del Cofre a pedido de Christian): el Cofre ya no
+  // se muestra apilado debajo del historial -- ahora es una pestaña propia
+  // dentro del Perfil, con su propio espacio y su propia identidad visual.
+  const [profileTab, setProfileTab] = React.useState('historial');
+
   // ===== Historial: búsqueda/filtros + cajón de temas =====
   const [historySearch, setHistorySearch] = React.useState('');
   const [historyFrom, setHistoryFrom] = React.useState('');
@@ -1806,6 +1811,24 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
         )}
       </div>
 
+      {isCofreEligible && (
+        <div className="profile-tabs">
+          <button
+            className={`profile-tab-btn${profileTab === 'historial' ? ' is-active' : ''}`}
+            onClick={() => setProfileTab('historial')}
+          >
+            📜 {es ? 'Mi historial' : 'My history'}
+          </button>
+          <button
+            className={`profile-tab-btn profile-tab-btn-cofre${profileTab === 'cofre' ? ' is-active' : ''}`}
+            onClick={() => setProfileTab('cofre')}
+          >
+            ✦ {t.profile_cofre_h}
+          </button>
+        </div>
+      )}
+
+      {profileTab === 'historial' && (
       <div className="profile-history">
         <div className="profile-history-head">
           <div className="eyebrow">— {t.profile_history_h} —</div>
@@ -1928,36 +1951,19 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
           </React.Fragment>
         )}
       </div>
+      )}
 
-      {isCofreEligible && (
-        <div className="profile-cofre">
-          <div className="profile-cofre-hero">
-            <div className="eyebrow">— ✦ {t.profile_cofre_h} —</div>
-            <p className="italic">{t.profile_cofre_sub}</p>
-          </div>
-          {cofreReadings.length === 0 ? (
-            <p className="italic profile-cofre-empty">{t.profile_cofre_empty}</p>
-          ) : (
-            <div className="profile-history-list">
-              {cofreReadings.map((r) => (
-                <HistoryRow
-                  key={r.id}
-                  r={r}
-                  lang={lang}
-                  t={t}
-                  es={es}
-                  isCofreEligible={isCofreEligible}
-                  onDelete={onDeleteReading}
-                  onArchive={onArchive}
-                  onView={setViewReading}
-                  onAskAgain={onAskAgain}
-                  onToggleSpecial={onToggleSpecial}
-                  cofreMode={true}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+      {profileTab === 'cofre' && isCofreEligible && (
+        <CofreSection
+          key={cofreReadings.length /* fuerza remount -> reanima la apertura si cambia el contenido */}
+          cofreReadings={cofreReadings}
+          lang={lang}
+          t={t}
+          es={es}
+          onView={setViewReading}
+          onToggleSpecial={onToggleSpecial}
+          updateReading={updateReading}
+        />
       )}
 
       {/* ===== Tu opinión y tu cuenta ===== */}
@@ -2381,17 +2387,111 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
           color: var(--gold); margin-bottom: 10px;
         }
         .profile-drawer-group-h span { color: var(--ink-soft); text-transform: none; letter-spacing: 0; font-family: inherit; }
-        .profile-cofre {
-          margin-top: 56px; margin-bottom: 48px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line);
-          background: rgba(26, 20, 56, 0.35);
+        .profile-tabs { display: flex; gap: 10px; margin: 8px 0 32px; flex-wrap: wrap; }
+        .profile-tab-btn {
+          background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-soft);
+          font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+          padding: 12px 22px; cursor: pointer; transition: border-color .2s, color .2s, background .2s;
         }
-        .profile-cofre-hero {
-          padding: 48px 32px; text-align: center;
-          background-image: linear-gradient(180deg, rgba(15,10,36,.55) 0%, rgba(15,10,36,.88) 100%), url('assets/cofre-bg.jpg');
-          background-size: cover; background-position: center 30%;
+        .profile-tab-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .profile-tab-btn.is-active { background: rgba(212,168,90,.14); border-color: var(--gold); color: var(--gold); }
+        .profile-tab-btn-cofre.is-active { background: rgba(180,140,240,.14); border-color: #b48cf0; color: #d9c6ff; }
+
+        /* ===== Cofre de Respuestas -- espacio propio ===== */
+        @keyframes cofre-portal-open {
+          0% { opacity: 0; transform: scale(0.96) translateY(10px); filter: brightness(0.6); }
+          60% { opacity: 1; filter: brightness(1.15); }
+          100% { opacity: 1; transform: scale(1) translateY(0); filter: brightness(1); }
         }
-        .profile-cofre-hero p { max-width: 480px; margin: 10px auto 0; color: var(--ink-soft); font-size: 16px; }
-        .profile-cofre .profile-history-list { padding: 28px 32px 32px; }
+        @keyframes cofre-particle-float {
+          0% { transform: translateY(0) translateX(0); opacity: 0; }
+          15% { opacity: .8; }
+          85% { opacity: .6; }
+          100% { transform: translateY(-40px) translateX(6px); opacity: 0; }
+        }
+        .cofre-portal {
+          position: relative; overflow: hidden; margin: 8px 0 48px; border-radius: 20px;
+          border: 1px solid var(--cofre-accent-soft, rgba(212,168,90,.35));
+          background:
+            radial-gradient(ellipse at 50% -10%, var(--cofre-accent-soft, rgba(212,168,90,.22)) 0%, transparent 60%),
+            linear-gradient(180deg, rgba(20, 14, 42, 0.9) 0%, rgba(12, 8, 26, 0.96) 100%);
+          box-shadow: 0 0 60px -20px var(--cofre-accent-soft, rgba(212,168,90,.35)) inset, 0 20px 50px -30px rgba(0,0,0,.6);
+          animation: cofre-portal-open 900ms ease-out both;
+          padding-bottom: 8px;
+        }
+        .cofre-particles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+        .cofre-particle {
+          position: absolute; border-radius: 50%; background: var(--cofre-accent, var(--gold));
+          box-shadow: 0 0 6px 1px var(--cofre-accent, var(--gold));
+          animation-name: cofre-particle-float; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
+        }
+        .cofre-hero { position: relative; padding: 52px 32px 28px; text-align: center; }
+        .cofre-hero .eyebrow { color: var(--cofre-accent, var(--gold)); }
+        .cofre-hero-sub { max-width: 480px; margin: 10px auto 0; color: var(--ink-soft); font-size: 16px; }
+        .cofre-hero-count { margin: 14px auto 0; font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: 0.06em; color: var(--ink); }
+        .cofre-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: center; margin-top: 24px; }
+        .cofre-seal-picker { display: flex; gap: 8px; align-items: center; }
+        .cofre-seal-swatch {
+          width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); cursor: pointer; padding: 0;
+          transition: transform .15s, border-color .15s;
+        }
+        .cofre-seal-swatch:hover { transform: scale(1.15); }
+        .cofre-seal-swatch.is-active { border-color: #fff; box-shadow: 0 0 0 2px var(--cofre-accent, var(--gold)); }
+        .cofre-sound-toggle, .cofre-view-toggle, .cofre-grimoire-btn { font-size: 12px; }
+
+        .cofre-echo {
+          position: relative; margin: 0 32px 28px; padding: 16px 20px; border-radius: 12px; cursor: pointer;
+          border: 1px dashed var(--cofre-accent, var(--gold)); background: var(--cofre-accent-soft, rgba(212,168,90,.12));
+          display: flex; flex-direction: column; gap: 6px; transition: background .2s;
+        }
+        .cofre-echo:hover { background: var(--cofre-accent-soft, rgba(212,168,90,.22)); }
+        .cofre-echo-tag { font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cofre-accent, var(--gold)); }
+        .cofre-echo-q { color: var(--ink); }
+
+        .cofre-grid {
+          position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 20px; padding: 4px 32px 36px;
+        }
+        .cofre-gem {
+          position: relative; border-radius: 16px; padding: 20px 20px 16px; cursor: pointer;
+          border: 1px solid var(--cofre-accent-soft, rgba(212,168,90,.3));
+          background: linear-gradient(160deg, rgba(255,255,255,.04) 0%, rgba(0,0,0,.15) 100%), rgba(26, 20, 56, 0.45);
+          transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        }
+        .cofre-gem:hover {
+          transform: translateY(-3px);
+          border-color: var(--cofre-accent, var(--gold));
+          box-shadow: 0 0 24px -6px var(--cofre-accent, var(--gold));
+        }
+        .cofre-gem.is-anchor { border-color: var(--cofre-accent, var(--gold)); box-shadow: 0 0 0 1px var(--cofre-accent, var(--gold)) inset; }
+        .cofre-gem-anchor-badge {
+          position: absolute; top: -11px; left: 16px; background: var(--cofre-accent, var(--gold)); color: #201434;
+          font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+          padding: 4px 10px; border-radius: 999px; font-weight: 700;
+        }
+        .cofre-gem-cards { display: flex; gap: 4px; margin-bottom: 12px; }
+        .cofre-gem-date { font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cofre-accent, var(--gold)); margin-bottom: 8px; }
+        .cofre-gem-snippet { color: var(--ink); font-size: 15px; line-height: 1.5; min-height: 44px; }
+        .cofre-gem-resonance { margin-top: 10px; font-size: 12px; color: var(--cofre-accent, var(--gold)); }
+        .cofre-gem-note-preview { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
+        .cofre-gem-actions { display: flex; gap: 6px; margin-top: 14px; }
+        .cofre-gem-action-btn {
+          width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: transparent;
+          color: var(--ink-soft); cursor: pointer; font-size: 13px;
+        }
+        .cofre-gem-action-btn:hover, .cofre-gem-action-btn.is-active { border-color: var(--cofre-accent, var(--gold)); color: var(--cofre-accent, var(--gold)); }
+        .cofre-gem-note-form { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .cofre-gem-note-form textarea {
+          width: 100%; min-height: 60px; background: rgba(0,0,0,.2); border: 1px solid var(--line); border-radius: 8px;
+          color: var(--ink); padding: 10px; font-family: inherit; font-size: 13px; resize: vertical;
+        }
+        .cofre-gem-note-form button { align-self: flex-end; font-size: 12px; padding: 6px 14px; }
+
+        .cofre-constellation { padding: 8px 32px 36px; }
+        .cofre-star { cursor: pointer; transition: r .15s; }
+        .cofre-star:hover { filter: brightness(1.3); }
+        .cofre-constellation-caption { text-align: center; color: var(--ink-soft); margin-top: 12px; }
+
         .profile-cofre-empty { text-align: center; color: var(--ink-soft); padding: 12px 32px 40px; }
         .modal-wide { max-width: 640px; }
         .reading-view-cards { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 24px; }
@@ -2441,6 +2541,312 @@ function groupReadingsByTime(list, es) {
     byLabel.get(label).items.push(r);
   });
   return groups;
+}
+
+// ===== Cofre de Respuestas -- rediseno 2026-09-10 (a pedido de Christian) =====
+// El Cofre dejo de reusar HistoryRow/profile-history-list: ahora es un
+// espacio propio, con su propia identidad visual y funciones que el
+// historial comun no tiene (notas privadas, ancla del mes, resonancia
+// entre lecturas, vista Constelacion, sello personalizable, sonido). No
+// requiere cambios de backend -- cofreNote y anchorMonth se guardan con
+// el mismo updateReading(id, patch) generico que ya existia.
+
+const COFRE_SEALS = {
+  dorado: { label_es: 'Dorado', label_en: 'Gold', accent: '#d4a85a', soft: 'rgba(212,168,90,.28)' },
+  amatista: { label_es: 'Amatista', label_en: 'Amethyst', accent: '#b48cf0', soft: 'rgba(180,140,240,.28)' },
+  rosa: { label_es: 'Rosa', label_en: 'Rose', accent: '#e08fae', soft: 'rgba(224,143,174,.28)' },
+  medianoche: { label_es: 'Medianoche', label_en: 'Midnight', accent: '#6f8cf0', soft: 'rgba(111,140,240,.28)' },
+};
+
+function cofreReadLocal(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v == null ? fallback : v;
+  } catch (e) { return fallback; }
+}
+function cofreWriteLocal(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) {}
+}
+
+// Frase evocadora para la "joya" -- la etiqueta que le puso la usuaria si
+// tiene una, si no la primera oracion de la interpretacion, si no la
+// pregunta que hizo.
+function cofreSnippet(r, es) {
+  if (r.specialLabel) return r.specialLabel;
+  const text = (r.interpretation || '').split('\n\n')[0] || '';
+  const idx = text.search(/[.!?]/);
+  const firstSentence = (idx >= 0 ? text.slice(0, idx + 1) : text).trim();
+  if (firstSentence) {
+    return firstSentence.length > 92 ? firstSentence.slice(0, 89).trim() + '…' : firstSentence;
+  }
+  if (r.question) return r.question;
+  return es ? 'Un fragmento de tu camino.' : 'A fragment of your path.';
+}
+
+// Cuantas otras lecturas del Cofre comparten al menos una carta con cada
+// lectura -- el "eco" entre respuestas guardadas.
+function cofreComputeResonance(list) {
+  const map = new Map();
+  list.forEach((a) => {
+    const aIds = new Set((a.picked || []).map((p) => p.id));
+    let count = 0;
+    list.forEach((b) => {
+      if (a.id === b.id) return;
+      if ((b.picked || []).some((p) => aIds.has(p.id))) count++;
+    });
+    map.set(a.id, count);
+  });
+  return map;
+}
+
+function cofreMonthKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${d.getMonth()}`;
+}
+
+// Campanita suave (arpegio de 3 tonos) al abrir una joya -- generada con
+// Web Audio, sin depender de ningun archivo de audio externo.
+function cofrePlayChime() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    [660, 880, 1320].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t0 = now + i * 0.07;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(0.05, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.9);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 1);
+    });
+    setTimeout(() => { try { ctx.close(); } catch (e) {} }, 1300);
+  } catch (e) { /* silencioso -- es solo un adorno sensorial */ }
+}
+
+function CofreSection({ cofreReadings, lang, t, es, onView, onToggleSpecial, updateReading }) {
+  const [seal, setSeal] = React.useState(() => cofreReadLocal('arcana_cofre_seal', 'dorado'));
+  const [soundOn, setSoundOn] = React.useState(() => cofreReadLocal('arcana_cofre_sound', '1') !== '0');
+  const [viewMode, setViewMode] = React.useState('joyas');
+  const [echoReading, setEchoReading] = React.useState(null);
+
+  const chooseSeal = (key) => { setSeal(key); cofreWriteLocal('arcana_cofre_seal', key); };
+  const toggleSound = () => { setSoundOn((v) => { cofreWriteLocal('arcana_cofre_sound', v ? '0' : '1'); return !v; }); };
+
+  // Eco del Cofre: una vez por mes, si hay algo guardado, trae de vuelta
+  // una lectura al azar como un pequeno recordatorio.
+  React.useEffect(() => {
+    if (!cofreReadings.length) return;
+    const key = 'arcana_cofre_echo_last';
+    const monthKey = cofreMonthKey(new Date());
+    if (cofreReadLocal(key, '') === monthKey) return;
+    const pick = cofreReadings[Math.floor(Math.random() * cofreReadings.length)];
+    setEchoReading(pick);
+    cofreWriteLocal(key, monthKey);
+    // eslint-disable-next-line
+  }, []);
+
+  const resonance = React.useMemo(() => cofreComputeResonance(cofreReadings), [cofreReadings]);
+  const thisMonthKey = cofreMonthKey(new Date());
+  const anchorId = React.useMemo(
+    () => (cofreReadings.find((r) => r.anchorMonth === thisMonthKey) || {}).id || null,
+    [cofreReadings, thisMonthKey]
+  );
+
+  const openReading = (r) => { if (soundOn) cofrePlayChime(); onView(r); };
+  const setAnchor = (r) => {
+    const nextValue = r.anchorMonth === thisMonthKey ? null : thisMonthKey;
+    cofreReadings.forEach((other) => {
+      if (other.id !== r.id && other.anchorMonth === thisMonthKey) updateReading(other.id, { anchorMonth: null });
+    });
+    updateReading(r.id, { anchorMonth: nextValue });
+  };
+  const setNote = (id, note) => updateReading(id, { cofreNote: note });
+
+  const sealInfo = COFRE_SEALS[seal] || COFRE_SEALS.dorado;
+  const particles = React.useMemo(() => (
+    Array.from({ length: 16 }, () => ({
+      left: Math.round(Math.random() * 100),
+      top: Math.round(Math.random() * 100),
+      delay: (Math.random() * 6).toFixed(2),
+      dur: (7 + Math.random() * 6).toFixed(2),
+      size: (2 + Math.random() * 3).toFixed(1),
+    }))
+  ), []);
+
+  return (
+    <div className="cofre-portal" style={{ '--cofre-accent': sealInfo.accent, '--cofre-accent-soft': sealInfo.soft }}>
+      <div className="cofre-particles" aria-hidden="true">
+        {particles.map((p, i) => (
+          <span key={i} className="cofre-particle" style={{ left: `${p.left}%`, top: `${p.top}%`, animationDelay: `${p.delay}s`, animationDuration: `${p.dur}s`, width: `${p.size}px`, height: `${p.size}px` }} />
+        ))}
+      </div>
+
+      <div className="cofre-hero">
+        <div className="eyebrow">— ✦ {t.profile_cofre_h} —</div>
+        <p className="italic cofre-hero-sub">{t.profile_cofre_sub}</p>
+        <p className="cofre-hero-count">
+          {cofreReadings.length === 0
+            ? (es ? 'Tu Cofre todavía está vacío.' : 'Your Chest is still empty.')
+            : (es
+                ? `Tu Cofre guarda ${cofreReadings.length} fragmento${cofreReadings.length === 1 ? '' : 's'} de tu camino.`
+                : `Your Chest holds ${cofreReadings.length} fragment${cofreReadings.length === 1 ? '' : 's'} of your path.`)}
+        </p>
+
+        <div className="cofre-controls">
+          <div className="cofre-seal-picker" role="group" aria-label={es ? 'Sello del Cofre' : 'Chest seal'}>
+            {Object.keys(COFRE_SEALS).map((key) => (
+              <button
+                key={key}
+                className={`cofre-seal-swatch${seal === key ? ' is-active' : ''}`}
+                style={{ background: COFRE_SEALS[key].accent }}
+                title={es ? COFRE_SEALS[key].label_es : COFRE_SEALS[key].label_en}
+                onClick={() => chooseSeal(key)}
+              />
+            ))}
+          </div>
+          <button className="btn btn-ghost cofre-sound-toggle" onClick={toggleSound}>
+            {soundOn ? '🔔' : '🔕'} {es ? (soundOn ? 'Sonido activo' : 'Sonido silenciado') : (soundOn ? 'Sound on' : 'Sound off')}
+          </button>
+          {cofreReadings.length > 1 && (
+            <button className="btn btn-ghost cofre-view-toggle" onClick={() => setViewMode((v) => (v === 'joyas' ? 'constelacion' : 'joyas'))}>
+              {viewMode === 'joyas' ? `✨ ${es ? 'Ver Constelación' : 'View Constellation'}` : `💎 ${es ? 'Ver Joyas' : 'View Gems'}`}
+            </button>
+          )}
+          <button className="btn btn-ghost cofre-grimoire-btn" onClick={() => window.arcanaExportGrimoire(cofreReadings, lang)}>
+            📖 {es ? 'Descargar mi Grimorio' : 'Download my Grimoire'}
+          </button>
+        </div>
+      </div>
+
+      {echoReading && (
+        <div className="cofre-echo" onClick={() => { openReading(echoReading); setEchoReading(null); }}>
+          <span className="cofre-echo-tag">✦ {es ? 'Tu Cofre te recuerda esto hoy' : 'Your Chest reminds you of this today'}</span>
+          <span className="cofre-echo-q italic">"{cofreSnippet(echoReading, es)}"</span>
+        </div>
+      )}
+
+      {cofreReadings.length === 0 ? (
+        <p className="italic profile-cofre-empty">{t.profile_cofre_empty}</p>
+      ) : viewMode === 'constelacion' ? (
+        <CofreConstellation readings={cofreReadings} t={t} es={es} onView={openReading} />
+      ) : (
+        <div className="cofre-grid">
+          {cofreReadings.map((r) => (
+            <CofreGem
+              key={r.id}
+              r={r}
+              lang={lang}
+              t={t}
+              es={es}
+              isAnchor={r.id === anchorId}
+              resonantCount={resonance.get(r.id) || 0}
+              onOpen={() => openReading(r)}
+              onToggleSpecial={onToggleSpecial}
+              onSetAnchor={() => setAnchor(r)}
+              onSetNote={(note) => setNote(r.id, note)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CofreGem({ r, lang, t, es, isAnchor, resonantCount, onOpen, onToggleSpecial, onSetAnchor, onSetNote }) {
+  const { TarotCard } = window;
+  const cards = r.picked.map((p) => window.TAROT_CARDS.all.find((c) => c.id === p.id)).filter(Boolean);
+  const d = new Date(r.date);
+  const [noteOpen, setNoteOpen] = React.useState(false);
+  const [noteDraft, setNoteDraft] = React.useState(r.cofreNote || '');
+
+  return (
+    <div className={`cofre-gem${isAnchor ? ' is-anchor' : ''}`} onClick={onOpen}>
+      {isAnchor && <div className="cofre-gem-anchor-badge">📌 {es ? 'Ancla del mes' : "Month's anchor"}</div>}
+      <div className="cofre-gem-cards">
+        {cards.slice(0, 3).map((c, i) => (
+          <div key={i} className="cofre-gem-card" style={{ width: 40 }}>
+            <TarotCard card={c} lang={lang} revealed={true} compact={true} />
+          </div>
+        ))}
+      </div>
+      <div className="cofre-gem-date">{d.getDate()} {t.month_names[d.getMonth()]}, {d.getFullYear()}</div>
+      <div className="cofre-gem-snippet italic">"{cofreSnippet(r, es)}"</div>
+      {resonantCount > 0 && (
+        <div className="cofre-gem-resonance">
+          ✦ {es ? `Resuena con ${resonantCount} lectura${resonantCount === 1 ? '' : 's'} más` : `Resonates with ${resonantCount} more reading${resonantCount === 1 ? '' : 's'}`}
+        </div>
+      )}
+      {r.cofreNote && !noteOpen && (
+        <div className="cofre-gem-note-preview italic">🖋 "{r.cofreNote.length > 60 ? r.cofreNote.slice(0, 57) + '…' : r.cofreNote}"</div>
+      )}
+      <div className="cofre-gem-actions" onClick={(e) => e.stopPropagation()}>
+        <button className={`cofre-gem-action-btn${isAnchor ? ' is-active' : ''}`} title={es ? 'Marcar como ancla del mes' : "Mark as this month's anchor"} onClick={onSetAnchor}>📌</button>
+        <button className="cofre-gem-action-btn" title={es ? 'Nota privada' : 'Private note'} onClick={() => setNoteOpen((v) => !v)}>🖋</button>
+        <button className="cofre-gem-action-btn" title={t.profile_cofre_remove} onClick={() => onToggleSpecial(r.id, false, null)}>✦✕</button>
+      </div>
+      {noteOpen && (
+        <div className="cofre-gem-note-form" onClick={(e) => e.stopPropagation()}>
+          <textarea
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            placeholder={es ? 'Cómo te sentiste al leer esto...' : 'How this felt to read...'}
+            maxLength={280}
+          />
+          <button className="btn btn-ghost" onClick={() => { onSetNote(noteDraft.trim()); setNoteOpen(false); }}>✓ {es ? 'Guardar' : 'Save'}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CofreConstellation({ readings, t, es, onView }) {
+  const sorted = readings.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+  const w = 720, h = 260, pad = 30;
+  const minT = sorted.length ? new Date(sorted[0].date).getTime() : 0;
+  const maxT = sorted.length ? new Date(sorted[sorted.length - 1].date).getTime() : 1;
+  const span = Math.max(1, maxT - minT);
+  const hashY = (id) => {
+    let hv = 0;
+    const s = String(id);
+    for (let i = 0; i < s.length; i++) hv = (hv * 31 + s.charCodeAt(i)) | 0;
+    return Math.abs(hv) % 100;
+  };
+  const points = sorted.map((reading) => {
+    const t0 = new Date(reading.date).getTime();
+    const x = pad + ((t0 - minT) / span) * (w - pad * 2);
+    const y = pad + (hashY(reading.id) / 100) * (h - pad * 2);
+    return { reading, x, y };
+  });
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  const lastId = points.length ? points[points.length - 1].reading.id : null;
+
+  return (
+    <div className="cofre-constellation">
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} role="img" aria-label={es ? 'Mapa de tus lecturas guardadas en el tiempo' : 'Map of your saved readings over time'}>
+        <path d={pathD} fill="none" stroke="var(--cofre-accent, var(--gold))" strokeOpacity="0.35" strokeWidth="1.5" />
+        {points.map((p) => (
+          <circle
+            key={p.reading.id}
+            cx={p.x}
+            cy={p.y}
+            r={p.reading.id === lastId ? 7 : 5.5}
+            fill="var(--cofre-accent, var(--gold))"
+            className="cofre-star"
+            onClick={() => onView(p.reading)}
+          >
+            <title>{`${spreadName(p.reading.spread, t)} — ${new Date(p.reading.date).toLocaleDateString(es ? 'es-CL' : 'en-US')}`}</title>
+          </circle>
+        ))}
+      </svg>
+      <p className="italic cofre-constellation-caption">{es ? 'El mapa de tu camino a través del tiempo.' : 'The map of your path through time.'}</p>
+    </div>
+  );
 }
 
 function HistoryRow({ r, lang, t, es, isCofreEligible, onDelete, onArchive, onView, onAskAgain, onToggleSpecial, cofreMode }) {

@@ -128,3 +128,105 @@ window.arcanaExportReadingsBundlePDF = function (readings, lang) {
   doc.save(`lux-astral-historial-${new Date().toISOString().slice(0, 10)}.pdf`);
   return true;
 };
+
+// ===== Grimorio Personal (Cofre de Respuestas) -- 2026-09-10 =====
+// Version especial del export del historial, exclusiva del Cofre: portada
+// propia con diseño dorado sobre fondo profundo (sin depender de ninguna
+// imagen externa, todo dibujado con las primitivas vectoriales de jsPDF)
+// + un marco decorativo por página. Reusa arcanaDrawReadingIntoDoc para
+// el cuerpo de cada lectura -- misma fuente de verdad que el PDF
+// individual/del historial común, solo cambia el envoltorio.
+// Nota: si una lectura es tan larga que arcanaDrawReadingIntoDoc agrega
+// una página propia por desborde, esa página extra no lleva el marco
+// (se dibuja una sola vez antes de cada lectura) -- es una limitación
+// cosmética menor, no afecta el contenido.
+function arcanaDrawCofreCover(doc, readings, lang) {
+  const es = lang !== 'en';
+  const w = doc.internal.pageSize.getWidth();
+  const h = doc.internal.pageSize.getHeight();
+  const gold = [212, 168, 90];
+  const deep = [16, 11, 34];
+
+  doc.setFillColor(deep[0], deep[1], deep[2]);
+  doc.rect(0, 0, w, h, 'F');
+
+  doc.setDrawColor(gold[0], gold[1], gold[2]);
+  doc.setLineWidth(1);
+  doc.rect(28, 28, w - 56, h - 56, 'S');
+  doc.setLineWidth(0.5);
+  doc.rect(34, 34, w - 68, h - 68, 'S');
+
+  doc.setLineWidth(1.2);
+  doc.circle(w / 2, 150, 34, 'S');
+  doc.circle(w / 2, 150, 26, 'S');
+
+  doc.setTextColor(gold[0], gold[1], gold[2]);
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(12);
+  doc.text('LUX ASTRAL', w / 2, 222, { align: 'center' });
+
+  doc.setFontSize(30);
+  doc.text(es ? 'GRIMORIO PERSONAL' : 'PERSONAL GRIMOIRE', w / 2, 260, { align: 'center' });
+
+  doc.setLineWidth(0.7);
+  doc.line(w / 2 - 90, 278, w / 2 + 90, 278);
+
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(12);
+  doc.setTextColor(220, 214, 232);
+  const count = readings.length;
+  doc.text(
+    es
+      ? `${count} respuesta${count === 1 ? '' : 's'} guardada${count === 1 ? '' : 's'} de tu Cofre`
+      : `${count} saved answer${count === 1 ? '' : 's'} from your Chest`,
+    w / 2, 310, { align: 'center' }
+  );
+
+  if (count) {
+    const dates = readings.map((r) => new Date(r.date).getTime()).filter((t) => !isNaN(t));
+    if (dates.length) {
+      const min = new Date(Math.min(...dates));
+      const max = new Date(Math.max(...dates));
+      const fmt = (d) => d.toLocaleDateString(es ? 'es-CL' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      doc.setFontSize(10);
+      doc.setTextColor(160, 150, 190);
+      doc.text(`${fmt(min)} — ${fmt(max)}`, w / 2, 328, { align: 'center' });
+    }
+  }
+
+  doc.setFontSize(9);
+  doc.setTextColor(120, 110, 150);
+  const today = new Date();
+  doc.text(
+    es
+      ? `Generado el ${today.toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' })}`
+      : `Generated on ${today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+    w / 2, h - 50, { align: 'center' }
+  );
+}
+
+function arcanaDrawCofrePageFrame(doc) {
+  const w = doc.internal.pageSize.getWidth();
+  const h = doc.internal.pageSize.getHeight();
+  doc.setDrawColor(212, 168, 90);
+  doc.setLineWidth(0.6);
+  doc.rect(24, 24, w - 48, h - 48, 'S');
+}
+
+// Descarga las lecturas del Cofre como un PDF con portada de diseño
+// especial -- exclusivo del Cofre de Respuestas, distinto del PDF
+// genérico del historial común.
+window.arcanaExportGrimoire = function (readings, lang) {
+  if (!arcanaCanUsePdf() || !readings || readings.length === 0) return false;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  arcanaDrawCofreCover(doc, readings, lang);
+  const sorted = readings.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+  sorted.forEach((reading) => {
+    doc.addPage();
+    arcanaDrawCofrePageFrame(doc);
+    arcanaDrawReadingIntoDoc(doc, reading, lang);
+  });
+  doc.save(`lux-astral-grimorio-${new Date().toISOString().slice(0, 10)}.pdf`);
+  return true;
+};
