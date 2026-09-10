@@ -645,12 +645,13 @@ function pruneReadingTickets(store: any) {
     if (now - store.readingTickets[id].createdAt > READING_TICKET_TTL_MS) delete store.readingTickets[id];
   }
 }
-function issueReadingTicket(store: any, email: string, responseType: string) {
+function issueReadingTicket(store: any, email: string, responseType: string, planKey: string) {
   pruneReadingTickets(store);
   const ticketId = crypto.randomUUID();
   store.readingTickets[ticketId] = {
     email,
     responseType,
+    planKey, // "vela" (gratis) o el plan pago -- decide el modelo de IA server-side, ver tarot-generate-background.mts
     maxFollowUps: RESPONSE_TYPE_MAX_FOLLOWUPS[responseType] || 0,
     followUpsUsed: 0,
     createdAt: Date.now(),
@@ -679,7 +680,7 @@ async function resolveReadingAccess(store: any, email: string, spread: string, p
     const responseType = preferredResponseType && options.includes(preferredResponseType)
       ? preferredResponseType
       : PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
-    const ticketId = issueReadingTicket(store, key, responseType);
+    const ticketId = issueReadingTicket(store, key, responseType, sub.planKey);
     return { allowed: true, responseType, planKey: sub.planKey, responseTypeOptions: options, ticketId };
   }
   if (!FREE_ALLOWED_SPREADS.includes(spread)) {
@@ -692,7 +693,7 @@ async function resolveReadingAccess(store: any, email: string, spread: string, p
     return { allowed: false, reason: "daily-limit" };
   }
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
-  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE);
+  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, "vela");
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: "vela", ticketId };
 }
 
@@ -882,9 +883,12 @@ async function loadDefaultNewsletterTemplate(origin: string) {
 // el template HTML (store.settings.newsletterTemplate, editable desde
 // Setup) reemplazando los {{placeholders}}.
 async function generateNewsletterContent(store: any, siteBaseUrl: string) {
-  const apiKey = Netlify.env.get("ANTHROPIC_API_KEY");
+  // 2026-09-10 (a pedido de Christian): el boletín es texto corto y no
+  // necesita un modelo pago -- pasa a GLM-4.5-Flash (gratis en Z.ai,
+  // misma cuenta que ya se usa para lecturas). Antes usaba Claude Haiku.
+  const apiKey = Netlify.env.get("GLM_API_KEY");
   if (!apiKey) {
-    const err: any = new Error("Falta ANTHROPIC_API_KEY para generar el boletín.");
+    const err: any = new Error("Falta GLM_API_KEY para generar el boletín.");
     err.isConfig = true;
     throw err;
   }
@@ -916,27 +920,27 @@ FRASE: <texto>
 CONSEJO_TITULO: <texto>
 ---
 CONSEJO: <texto>`;
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://api.z.ai/api/paas/v4/chat/completions", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 900, messages: [{ role: "user", content: prompt }] }),
+    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: "glm-4.5-flash", max_tokens: 900, thinking: { type: "disabled" }, messages: [{ role: "user", content: prompt }] }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    const err: any = new Error("Error de Anthropic al generar el boletín.");
+    const err: any = new Error("Error de GLM (Z.ai) al generar el boletín.");
     err.status = res.status;
     err.detail = detail;
     throw err;
   }
   const data: any = await res.json();
-  const text = (data.content || []).map((b: any) => b.text || "").join("").trim();
+  const text = ((data.choices || [])[0]?.message?.content || "").trim();
   try {
     logAiUsage(store, {
       kind: "newsletter",
-      provider: "anthropic",
-      model: "claude-haiku-4-5-20251001",
-      inputTokens: data.usage?.input_tokens || 0,
-      outputTokens: data.usage?.output_tokens || 0,
+      provider: "glm",
+      model: "glm-4.5-flash",
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
     });
   } catch (e) {
     // silencioso -- nunca debe impedir el envío del boletín.

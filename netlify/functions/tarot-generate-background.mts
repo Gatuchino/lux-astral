@@ -52,6 +52,9 @@ const DEFAULT_AI_PRICING: Record<string, any> = {
     "gemini-3.5-flash": { in: 1.5, out: 9 },
     "gemini-2.5-pro": { in: 1.25, out: 10 },
   },
+  groq: {
+    "llama-3.3-70b-versatile": { in: 0, out: 0 },
+  },
   elevenlabs: { perCharUsd: 0.00005 },
 };
 
@@ -180,6 +183,24 @@ const PROVIDERS: Record<string, {
       return { text, inputTokens: data.usageMetadata?.promptTokenCount || 0, outputTokens: data.usageMetadata?.candidatesTokenCount || 0 };
     },
   },
+  // 2026-09-10: respaldo gratuito para usuarias sin plan pago (ver el
+  // ruteo mas abajo) -- Groq no cobra por este modelo, sin tarjeta.
+  groq: {
+    envKey: "GROQ_API_KEY",
+    defaultModel: "llama-3.3-70b-versatile",
+    allowedModels: new Set(["llama-3.3-70b-versatile"]),
+    async call(prompt, maxTokens, model, apiKey) {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+      });
+      if (!res.ok) throw await apiError(res);
+      const data = await res.json();
+      const text = ((data.choices || [])[0]?.message?.content || "").trim();
+      return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
+    },
+  },
 };
 
 export default async (req: Request, context: any) => {
@@ -189,31 +210,62 @@ export default async (req: Request, context: any) => {
   } catch (e) {
     return; // el llamador no lee esta respuesta -- ver comentario arriba
   }
-  const { jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp } = payload || {};
+  const { jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp, isFreeUser } = payload || {};
   if (!jobId || !Array.isArray(prompts) || prompts.length === 0) return;
 
-  const providerId = provider && PROVIDERS[provider] ? provider : "anthropic";
-  const prov = PROVIDERS[providerId];
-  const apiKey = Netlify.env.get(prov.envKey);
-  if (!apiKey) {
-    await jobsStore().setJSON(jobId, {
-      status: "error",
-      error: `Falta ${prov.envKey} en las variables de entorno de Netlify (para usar ${providerId}).`,
-      createdAt: Date.now(),
-    });
-    return;
+  // 2026-09-10 (a pedido de Christian): las usuarias sin plan pago (Vela,
+  // o la lectura gratis diaria) SIEMPRE van a un modelo gratuito -- nunca
+  // al que el navegador haya mandado en "provider"/"model" (esa decision
+  // es del backend, a partir de isFreeUser, que a su vez sale del ticket
+  // emitido en reading-access -- el cliente no puede falsearla). Primero
+  // GLM-4.5-Flash (gratis en Z.ai, misma cuenta que ya tenes); si falla o
+  // no esta configurada esa clave, reintenta automaticamente con Groq
+  // (tambien gratis) antes de rendirse. Las usuarias con plan pago siguen
+  // usando el proveedor/modelo que elijas en Setup, como antes.
+  let providerId: string;
+  let chosenModel: string;
+  if (isFreeUser) {
+    providerId = "glm";
+    chosenModel = "glm-4.5-flash";
+  } else {
+    providerId = provider && PROVIDERS[provider] ? provider : "anthropic";
+    const prov = PROVIDERS[providerId];
+    chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
   }
-  const chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
 
-  // Si vino mas de un prompt (lectura Tipo 3/4/5 dividida en grupos para
-  // acortar la espera), se generan en PARALELO y se unen en orden -- ver
-  // Reading.jsx (requestLLMInterpretation) para como se arman los grupos.
-  try {
-    const results = await Promise.all(
+  const callProvider = async (pid: string, mdl: string) => {
+    const prov = PROVIDERS[pid];
+    const apiKey = Netlify.env.get(prov.envKey);
+    if (!apiKey) {
+      const err: any = new Error(`Falta ${prov.envKey} en las variables de entorno de Netlify (para usar ${pid}).`);
+      err.isConfig = true;
+      throw err;
+    }
+    // Si vino mas de un prompt (lectura Tipo 3/4/5 dividida en grupos para
+    // acortar la espera), se generan en PARALELO y se unen en orden -- ver
+    // Reading.jsx (requestLLMInterpretation) para como se arman los grupos.
+    return Promise.all(
       prompts.map((p: string, i: number) =>
-        prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey)
+        prov.call(p, effectiveMaxTokens(pid, (maxTokensList && maxTokensList[i]) || 700), mdl, apiKey)
       )
     );
+  };
+
+  try {
+    let results;
+    try {
+      results = await callProvider(providerId, chosenModel);
+    } catch (e) {
+      if (isFreeUser && providerId === "glm") {
+        // Respaldo automatico: Z.ai no dio abasto (rate-limit) o no esta
+        // configurada la clave -- probamos con Groq antes de fallar.
+        providerId = "groq";
+        chosenModel = PROVIDERS.groq.defaultModel;
+        results = await callProvider(providerId, chosenModel);
+      } else {
+        throw e;
+      }
+    }
     // Separador entre partes generadas en paralelo (ver Reading.jsx,
     // requestLLMInterpretation): el cliente lo usa para dibujar un
     // separador ornamental entre bloques de la lectura. Si solo hubo un
@@ -222,9 +274,10 @@ export default async (req: Request, context: any) => {
     const text = results.map((r) => (r.text || "").trim()).filter(Boolean).join("\n\n§§ARCANA-SECTION§§\n\n");
     await jobsStore().setJSON(jobId, { status: "done", text, createdAt: Date.now() });
 
-    // 2026-09-10: registro de uso/costo para el panel de Setup. Nunca debe
-    // interrumpir la entrega de la lectura (ya se guardo arriba) -- por eso
-    // va en su propio try/catch, despues.
+    // 2026-09-10: registro de uso/costo para el panel de Setup -- con el
+    // proveedor/modelo REALMENTE usado (importa si hubo respaldo a Groq).
+    // Nunca debe interrumpir la entrega de la lectura (ya se guardo
+    // arriba) -- por eso va en su propio try/catch, despues.
     try {
       const inputTokens = results.reduce((sum, r) => sum + (r.inputTokens || 0), 0);
       const outputTokens = results.reduce((sum, r) => sum + (r.outputTokens || 0), 0);

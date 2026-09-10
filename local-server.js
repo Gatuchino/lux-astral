@@ -143,6 +143,25 @@ const PROVIDERS = {
       return { text, inputTokens: data.usageMetadata?.promptTokenCount || 0, outputTokens: data.usageMetadata?.candidatesTokenCount || 0 };
     },
   },
+  // 2026-09-10: respaldo gratuito para usuarias sin plan pago (ver el
+  // ruteo en handleInterpret) -- Groq no cobra por este modelo, sin
+  // tarjeta.
+  groq: {
+    envKey: 'GROQ_API_KEY',
+    defaultModel: 'llama-3.3-70b-versatile',
+    allowedModels: new Set(['llama-3.3-70b-versatile']),
+    async call(prompt, maxTokens, model, apiKey) {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+      });
+      if (!res.ok) throw await apiError(res);
+      const data = await res.json();
+      const text = ((data.choices || [])[0]?.message?.content || '').trim();
+      return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
+    },
+  },
 };
 
 // tarot-interpret local sigue el mismo contrato "iniciador + sondeo" que
@@ -202,29 +221,59 @@ async function handleInterpret(req, res) {
       ticket.followUpsUsed += 1;
       saveBookingStore(ticketStore);
     }
-    const providerId = PROVIDERS[provider] ? provider : 'anthropic';
-    const prov = PROVIDERS[providerId];
-    const apiKey = process.env[prov.envKey];
-    const jobId = crypto.randomUUID();
-    if (!apiKey) {
-      const msg = `Falta ${prov.envKey} (agregala al archivo .env en esta carpeta para usar ${providerId}).`;
-      console.error('[tarot-interpret]', msg);
-      localInterpretJobs.set(jobId, { status: 'error', error: msg, createdAt: Date.now() });
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ jobId }));
-      return;
+    // 2026-09-10 (a pedido de Christian): usuarias sin plan pago (Vela, o
+    // la lectura gratis diaria) SIEMPRE van a un modelo gratuito -- nunca
+    // al que el navegador mando en "provider"/"model" (esa decision es
+    // del backend, segun el planKey guardado en el ticket -- el cliente
+    // no puede falsearla). Primero GLM-4.5-Flash (gratis en Z.ai); si
+    // falla o no esta configurada esa clave, reintenta automaticamente
+    // con Groq (tambien gratis) antes de rendirse. Con plan pago se sigue
+    // usando el proveedor/modelo que elijas en Setup, como antes.
+    const isFreeUser = !PAID_PLAN_KEYS.includes(ticket.planKey);
+    let providerId, chosenModel;
+    if (isFreeUser) {
+      providerId = 'glm';
+      chosenModel = 'glm-4.5-flash';
+    } else {
+      providerId = PROVIDERS[provider] ? provider : 'anthropic';
+      const prov = PROVIDERS[providerId];
+      chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
     }
-    const chosenModel = prov.allowedModels.has(model) ? model : prov.defaultModel;
+    const jobId = crypto.randomUUID();
     localInterpretJobs.set(jobId, { status: 'pending', createdAt: Date.now() });
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ jobId }));
-    // Si vino mas de un prompt (lectura Tipo 3/4/5 dividida en grupos), se
-    // generan en paralelo y se unen en orden -- mismo contrato que
-    // tarot-generate-background.mts en produccion.
-    try {
-      const results = await Promise.all(
-        prompts.map((p, i) => prov.call(p, effectiveMaxTokens(providerId, (maxTokensList && maxTokensList[i]) || 700), chosenModel, apiKey))
+
+    const callProvider = async (pid, mdl) => {
+      const prov = PROVIDERS[pid];
+      const apiKey = process.env[prov.envKey];
+      if (!apiKey) {
+        const err = new Error(`Falta ${prov.envKey} (agregala al archivo .env en esta carpeta para usar ${pid}).`);
+        err.isConfig = true;
+        throw err;
+      }
+      // Si vino mas de un prompt (lectura Tipo 3/4/5 dividida en grupos), se
+      // generan en paralelo y se unen en orden -- mismo contrato que
+      // tarot-generate-background.mts en produccion.
+      return Promise.all(
+        prompts.map((p, i) => prov.call(p, effectiveMaxTokens(pid, (maxTokensList && maxTokensList[i]) || 700), mdl, apiKey))
       );
+    };
+
+    try {
+      let results;
+      try {
+        results = await callProvider(providerId, chosenModel);
+      } catch (e) {
+        if (isFreeUser && providerId === 'glm') {
+          console.error('[tarot-interpret] GLM-4.5-Flash fallo, reintentando con Groq ->', e.message);
+          providerId = 'groq';
+          chosenModel = PROVIDERS.groq.defaultModel;
+          results = await callProvider(providerId, chosenModel);
+        } else {
+          throw e;
+        }
+      }
       // Mismo separador que tarot-generate-background.mts en produccion
       // (ver comentario alli) -- para que el front dibuje el divisor
       // ornamental entre partes tambien en desarrollo local.
@@ -452,6 +501,9 @@ const DEFAULT_AI_PRICING = {
     'gemini-2.5-flash': { in: 0.3, out: 2.5 },
     'gemini-3.5-flash': { in: 1.5, out: 9 },
     'gemini-2.5-pro': { in: 1.25, out: 10 },
+  },
+  groq: {
+    'llama-3.3-70b-versatile': { in: 0, out: 0 },
   },
   elevenlabs: { perCharUsd: 0.00005 },
 };
@@ -967,6 +1019,9 @@ const FREE_DAILY_LIMIT = 1;
 // tarot-interpret exige y valida antes de gastar un llamado a la IA.
 // RESPONSE_TYPE_MAX_FOLLOWUPS es espejo de RESPONSE_TYPES en Reading.jsx.
 const RESPONSE_TYPE_MAX_FOLLOWUPS = { '1': 0, '2': 0, '3': 0, '4': 2, '5': 5 };
+// 2026-09-10: 'vela' (sin plan pago) o falta de planKey (tickets viejos)
+// siempre cuentan como usuaria gratis -- ver el ruteo en handleInterpret.
+const PAID_PLAN_KEYS = ['luna', 'estrella', 'oraculo'];
 const READING_TICKET_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas, alcanza para una conversacion de lectura
 
 function pruneReadingTickets(store) {
@@ -975,12 +1030,13 @@ function pruneReadingTickets(store) {
     if (now - store.readingTickets[id].createdAt > READING_TICKET_TTL_MS) delete store.readingTickets[id];
   }
 }
-function issueReadingTicket(store, email, responseType) {
+function issueReadingTicket(store, email, responseType, planKey) {
   pruneReadingTickets(store);
   const ticketId = crypto.randomUUID();
   store.readingTickets[ticketId] = {
     email,
     responseType,
+    planKey, // 'vela' (gratis) o el plan pago -- decide el modelo de IA server-side, ver tarot-generate-background.mts / handleInterpret
     maxFollowUps: RESPONSE_TYPE_MAX_FOLLOWUPS[responseType] || 0,
     followUpsUsed: 0,
     createdAt: Date.now(),
@@ -1019,7 +1075,7 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
     const responseType = options.includes(preferredResponseType)
       ? preferredResponseType
       : PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
-    const ticketId = issueReadingTicket(store, key, responseType);
+    const ticketId = issueReadingTicket(store, key, responseType, sub.planKey);
     return { allowed: true, responseType, planKey: sub.planKey, responseTypeOptions: options, ticketId };
   }
   // Plan Vela (gratis): 1 consulta al día, solo carta del día o tirada de 3.
@@ -1033,7 +1089,7 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
     return { allowed: false, reason: 'daily-limit' };
   }
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
-  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE);
+  const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, 'vela');
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: 'vela', ticketId };
 }
 
@@ -1212,9 +1268,12 @@ function renderNewsletterTemplate(template, vars) {
 // el template HTML (store.settings.newsletterTemplate, editable desde
 // Setup) reemplazando los {{placeholders}}.
 async function generateNewsletterContent(store, siteBaseUrl) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // 2026-09-10 (a pedido de Christian): el boletín es texto corto y no
+  // necesita un modelo pago -- pasa a GLM-4.5-Flash (gratis en Z.ai,
+  // misma cuenta que ya se usa para lecturas). Antes usaba Claude Haiku.
+  const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) {
-    const err = new Error('Falta ANTHROPIC_API_KEY para generar el boletín.');
+    const err = new Error('Falta GLM_API_KEY para generar el boletín.');
     err.isConfig = true;
     throw err;
   }
@@ -1240,11 +1299,11 @@ FRASE: <texto>
 CONSEJO_TITULO: <texto>
 ---
 CONSEJO: <texto>`;
-  const aiResult = await PROVIDERS.anthropic.call(prompt, 900, PROVIDERS.anthropic.defaultModel, apiKey);
+  const aiResult = await PROVIDERS.glm.call(prompt, 900, 'glm-4.5-flash', apiKey);
   const text = aiResult.text;
   try {
     const usageStore = loadBookingStore();
-    logAiUsage(usageStore, { kind: 'newsletter', provider: 'anthropic', model: PROVIDERS.anthropic.defaultModel, inputTokens: aiResult.inputTokens, outputTokens: aiResult.outputTokens });
+    logAiUsage(usageStore, { kind: 'newsletter', provider: 'glm', model: 'glm-4.5-flash', inputTokens: aiResult.inputTokens, outputTokens: aiResult.outputTokens });
     saveBookingStore(usageStore);
   } catch (e) {
     // silencioso -- nunca debe impedir el envío del boletín.

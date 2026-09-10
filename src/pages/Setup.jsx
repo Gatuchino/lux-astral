@@ -28,7 +28,7 @@ const AI_USAGE_KIND_LABELS = {
   newsletter: { es: 'Boletín diario', en: 'Daily newsletter' },
   tts: { es: 'Voz (ElevenLabs)', en: 'Voice (ElevenLabs)' },
 };
-const AI_USAGE_PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', glm: 'GLM (Z.ai)', gemini: 'Google Gemini', elevenlabs: 'ElevenLabs' };
+const AI_USAGE_PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', glm: 'GLM (Z.ai)', gemini: 'Google Gemini', groq: 'Groq', elevenlabs: 'ElevenLabs' };
 
 function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser }) {
   const t = window.I18N[lang];
@@ -1608,8 +1608,8 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       <SetupSection
         title={es ? 'API para las lecturas' : 'API for readings'}
         desc={es
-          ? 'Proveedor y modelo de IA que interpreta las tiradas y responde en el chat. Cada proveedor necesita su propia clave configurada del lado del servidor (.env en local, variables de entorno en Netlify).'
-          : 'AI provider and model that interprets spreads and replies in chat. Each provider needs its own key configured server-side (.env locally, environment variables on Netlify).'}
+          ? 'Proveedor y modelo de IA que interpreta las tiradas y responde en el chat — aplica solo a las usuarias con plan pago (Luna, Estrella, Oráculo). Las usuarias sin plan (Vela) y las lecturas gratis del día usan automáticamente GLM-4.5-Flash (gratis, Z.ai) con respaldo automático en Groq si falla, sin importar lo que elijas acá. Cada proveedor necesita su propia clave configurada del lado del servidor (.env en local, variables de entorno en Netlify).'
+          : 'AI provider and model that interprets spreads and replies in chat — applies only to paying members (Luna, Estrella, Oráculo). Free-tier (Vela) users and daily free readings automatically use GLM-4.5-Flash (free, Z.ai) with automatic Groq fallback if it fails, regardless of what you pick here. Each provider needs its own key configured server-side (.env locally, environment variables on Netlify).'}
       >
         <div className="form-field" style={{ maxWidth: 480, marginBottom: 8 }}>
           <label>{es ? 'Proveedor' : 'Provider'}</label>
@@ -1857,7 +1857,7 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
                 </tr>
               </thead>
               <tbody>
-                {['anthropic', 'openai', 'glm', 'gemini'].map((prov) => (
+                {['anthropic', 'openai', 'glm', 'gemini', 'groq'].map((prov) => (
                   Object.keys(aiPricingDraft[prov] || {}).map((mdl) => (
                     <tr key={prov + '/' + mdl} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
                       <td style={{ padding: '4px 6px' }}>{AI_USAGE_PROVIDER_LABELS[prov]} — {mdl}</td>

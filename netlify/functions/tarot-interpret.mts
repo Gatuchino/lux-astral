@@ -33,6 +33,14 @@ async function saveBookingStoreForTicket(data: any) {
   await store.setJSON("state", data);
 }
 
+// 2026-09-10 (a pedido de Christian): "vela" (sin plan pago) o falta de
+// planKey (tickets viejos, antes de este cambio) siempre cuentan como
+// usuaria gratis -- el modelo de IA que efectivamente se usa lo decide
+// tarot-generate-background.mts a partir de este flag, nunca lo que
+// mande el navegador en "provider"/"model" (evita que alguien fuerce el
+// modelo pago sin pagar).
+const PAID_PLAN_KEYS = ["luna", "estrella", "oraculo"];
+
 async function consumeReadingTicket(ticketId: string | undefined, isFollowUp: boolean) {
   if (!ticketId) return { ok: false, error: "Falta el ticket de la lectura." };
   const store = await loadBookingStoreForTicket();
@@ -47,7 +55,8 @@ async function consumeReadingTicket(ticketId: string | undefined, isFollowUp: bo
     ticket.followUpsUsed += 1;
     await saveBookingStoreForTicket(store);
   }
-  return { ok: true };
+  const isFreeUser = !PAID_PLAN_KEYS.includes(ticket.planKey);
+  return { ok: true, isFreeUser };
 }
 
 function jobsStore() {
@@ -97,7 +106,7 @@ async function handler(req: Request, context: any) {
     await fetch(bgUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp }),
+      body: JSON.stringify({ jobId, prompts, maxTokensList, model, provider, readingType, isFollowUp, isFreeUser: ticketCheck.isFreeUser }),
     });
   } catch (e: any) {
     await jobsStore().setJSON(jobId, {
