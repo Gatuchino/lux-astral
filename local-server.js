@@ -148,8 +148,11 @@ const PROVIDERS = {
   // tarjeta.
   groq: {
     envKey: 'GROQ_API_KEY',
-    defaultModel: 'llama-3.3-70b-versatile',
-    allowedModels: new Set(['llama-3.3-70b-versatile']),
+    // 2026-09-10: llama-3.3-70b-versatile fue dado de baja por Groq
+    // (08/16/26) -- reemplazado por el modelo que Groq recomienda en su
+    // tabla de deprecaciones (openai/gpt-oss-120b).
+    defaultModel: 'openai/gpt-oss-120b',
+    allowedModels: new Set(['openai/gpt-oss-120b']),
     async call(prompt, maxTokens, model, apiKey) {
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -503,7 +506,7 @@ const DEFAULT_AI_PRICING = {
     'gemini-2.5-pro': { in: 1.25, out: 10 },
   },
   groq: {
-    'llama-3.3-70b-versatile': { in: 0, out: 0 },
+    'openai/gpt-oss-120b': { in: 0, out: 0 },
   },
   elevenlabs: { perCharUsd: 0.00005 },
 };

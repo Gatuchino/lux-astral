@@ -888,7 +888,7 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       // seleccionable para lecturas de socias con plan tambien.
       id: 'groq', label: 'Groq (gratis)', keyEnv: 'GROQ_API_KEY',
       models: [
-        { value: 'llama-3.3-70b-versatile', label_es: 'Llama 3.3 70B — gratis, rápido (para probar)', label_en: 'Llama 3.3 70B — free, fast (for testing)' },
+        { value: 'openai/gpt-oss-120b', label_es: 'GPT-OSS 120B — gratis, rápido (para probar)', label_en: 'GPT-OSS 120B — free, fast (for testing)' },
       ],
     },
   ];
