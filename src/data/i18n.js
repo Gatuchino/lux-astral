@@ -206,6 +206,8 @@ window.I18N = {
     weather_your_location: "Tu ubicación",
     weather_humidity: "Humedad",
     weather_wind: "Viento",
+    weather_forecast_h: "Pronóstico de los próximos días",
+    weather_today: "Hoy",
 
     // Marketplace — Arcana Tarot Live
     market_h: "Sesiones en vivo",
@@ -798,6 +800,8 @@ window.I18N = {
     weather_your_location: "Your location",
     weather_humidity: "Humidity",
     weather_wind: "Wind",
+    weather_forecast_h: "Forecast for the coming days",
+    weather_today: "Today",
 
     // Marketplace — Arcana Tarot Live
     market_h: "Live sessions",

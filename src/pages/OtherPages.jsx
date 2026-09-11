@@ -648,6 +648,114 @@ function MoonWeatherCard({ lang, t, geo, weather }) {
   );
 }
 
+function iconAnimClass(code) {
+  if (code === 0 || code === 1) return 'sun';
+  if (code === 2 || code === 3 || code === 45 || code === 48) return 'cloud';
+  if (code === 95 || code === 96 || code === 99) return 'storm';
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return 'snow';
+  return 'rain';
+}
+
+// Pronóstico de varios días con gráfico de temperatura y probabilidad de
+// lluvia por día. Reutiliza el mismo pedido a Open-Meteo que ya trae el
+// clima actual (el bloque "daily" viaja en la misma respuesta, sin
+// llamadas de red extra) para el rectángulo debajo del ritual sugerido.
+function MoonForecastCard({ lang, t, geo, weather }) {
+  if (weather.status !== 'ok' || !weather.data.daily) {
+    let msg = t.weather_loading;
+    if (geo.status === 'denied') msg = t.weather_location_denied;
+    else if (geo.status === 'unsupported') msg = t.weather_unsupported;
+    else if (weather.status === 'error') msg = t.weather_error;
+    return (
+      <div className="forecast-card forecast-card-status">
+        <span>🌦️</span>
+        <p>{msg}</p>
+      </div>
+    );
+  }
+
+  const daily = weather.data.daily;
+  const days = daily.time.map((iso, i) => ({
+    date: new Date(iso + 'T12:00:00'),
+    code: daily.weather_code[i],
+    max: daily.temperature_2m_max[i],
+    min: daily.temperature_2m_min[i],
+    pop: daily.precipitation_probability_max ? daily.precipitation_probability_max[i] : null,
+  }));
+
+  const allTemps = days.flatMap((d) => [d.max, d.min]);
+  const tMax = Math.max(...allTemps);
+  const tMin = Math.min(...allTemps);
+  const span = Math.max(1, tMax - tMin);
+  const colW = 100;
+  const chartW = days.length * colW;
+  const chartH = 120;
+  const padY = 18;
+  const yFor = (temp) => padY + (1 - (temp - tMin) / span) * (chartH - padY * 2);
+  const xFor = (i) => i * colW + colW / 2;
+
+  const linePoints = days.map((d, i) => `${xFor(i)},${yFor(d.max)}`).join(' ');
+  const minLinePoints = days.map((d, i) => `${xFor(i)},${yFor(d.min)}`).join(' ');
+  const areaPoints = `0,${chartH} ${linePoints} ${chartW},${chartH}`;
+
+  return (
+    <div className="forecast-card">
+      <div className="forecast-inner">
+      <div className="forecast-chart-wrap">
+        <svg viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" className="forecast-chart" aria-hidden="true">
+          <defs>
+            <linearGradient id="forecastFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(212,168,90,0.4)" />
+              <stop offset="100%" stopColor="rgba(212,168,90,0)" />
+            </linearGradient>
+            <linearGradient id="forecastStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#7aa7ff" />
+              <stop offset="50%" stopColor="#d4a85a" />
+              <stop offset="100%" stopColor="#ff8a5c" />
+            </linearGradient>
+          </defs>
+          <polygon points={areaPoints} fill="url(#forecastFill)" />
+          <polyline points={minLinePoints} fill="none" stroke="rgba(160,180,255,0.35)" strokeWidth="2" strokeDasharray="4 4" />
+          <polyline points={linePoints} fill="none" stroke="url(#forecastStroke)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="forecast-line" />
+          {days.map((d, i) => (
+            <circle key={i} cx={xFor(i)} cy={yFor(d.max)} r="4" fill="#fff8e0" stroke="var(--gold)" strokeWidth="2" />
+          ))}
+        </svg>
+      </div>
+      <div className="forecast-days" style={{ gridTemplateColumns: `repeat(${days.length}, 1fr)` }}>
+        {days.map((d, i) => {
+          const label = weatherLabel(d.code, true, lang);
+          const pop = d.pop === null ? null : Math.round(d.pop);
+          return (
+            <div key={i} className="forecast-day">
+              <div className="forecast-day-name">{i === 0 ? t.weather_today : t.day_of_week[d.date.getDay()]}</div>
+              <div
+                className={`forecast-icon forecast-icon-${iconAnimClass(d.code)}`}
+                style={{ animationDelay: `${i * 0.15}s` }}
+              >
+                {label.icon}
+              </div>
+              <div className="forecast-temps">
+                <span className="forecast-max">{Math.round(d.max)}°</span>
+                <span className="forecast-min">{Math.round(d.min)}°</span>
+              </div>
+              {pop !== null && (
+                <div className="forecast-pop">
+                  <div className="forecast-pop-track">
+                    <div className="forecast-pop-bar" style={{ height: `${Math.max(6, pop)}%` }} />
+                  </div>
+                  <span>{pop}%</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      </div>
+    </div>
+  );
+}
+
 function MoonPage({ lang }) {
   const t = window.I18N[lang];
   const now = new Date();
@@ -697,7 +805,7 @@ function MoonPage({ lang }) {
     if (geo.status !== 'ok') return;
     let cancelled = false;
     setWeather({ status: 'pending' });
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=7&timezone=auto`;
     fetch(url)
       .then((r) => { if (!r.ok) throw new Error('bad-status'); return r.json(); })
       .then((data) => { if (!cancelled) setWeather({ status: 'ok', data }); })
@@ -770,6 +878,11 @@ function MoonPage({ lang }) {
       <div className="moon-section">
         <div className="eyebrow" style={{ marginBottom: 12 }}>— {t.moon_ritual_h} —</div>
         <div className="moon-ritual italic">"{ritualText}"</div>
+      </div>
+
+      <div className="moon-section moon-section-forecast">
+        <div className="eyebrow" style={{ marginBottom: 12 }}>— {t.weather_forecast_h} —</div>
+        <MoonForecastCard lang={lang} t={t} geo={geo} weather={weather} />
       </div>
 
       <style>{`
@@ -861,6 +974,96 @@ function MoonPage({ lang }) {
         .moon-weather-desc { font-size: 14px; color: var(--ink); }
         .moon-weather-extra { display: flex; gap: 14px; font-size: 12px; color: var(--ink-soft); }
 
+        .moon-section-forecast { max-width: none; }
+        .forecast-card {
+          background: linear-gradient(135deg, rgba(90, 58, 138, 0.12), rgba(15, 10, 36, 0.45));
+          border: 1px solid var(--line);
+          border-radius: 20px;
+          padding: 32px 32px 24px;
+          text-align: left;
+        }
+        .forecast-card-status {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          justify-content: center;
+          color: var(--ink-soft);
+          font-size: 14px;
+          padding: 40px 32px;
+        }
+        .forecast-card-status p { margin: 0; }
+        .forecast-chart-wrap { width: 100%; margin-bottom: 8px; }
+        .forecast-chart { width: 100%; height: 100px; display: block; overflow: visible; }
+        .forecast-line {
+          stroke-dasharray: 1400;
+          stroke-dashoffset: 1400;
+          animation: forecastDraw 1.6s ease forwards;
+        }
+        @keyframes forecastDraw { to { stroke-dashoffset: 0; } }
+        .forecast-days {
+          display: grid;
+          gap: 8px;
+        }
+        .forecast-day {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          padding-top: 8px;
+        }
+        .forecast-day-name {
+          font-family: 'Cinzel', serif;
+          font-size: 10px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--ink-soft);
+        }
+        .forecast-icon {
+          font-size: 28px;
+          line-height: 1;
+          animation: forecastFloat 3s ease-in-out infinite;
+        }
+        @keyframes forecastFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+        .forecast-icon-sun {
+          animation: forecastSpin 9s linear infinite;
+          filter: drop-shadow(0 0 6px rgba(255, 210, 120, 0.55));
+        }
+        @keyframes forecastSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .forecast-icon-cloud { animation: forecastDrift 4s ease-in-out infinite; }
+        @keyframes forecastDrift { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+        .forecast-icon-rain { animation: forecastBob 1.4s ease-in-out infinite; }
+        @keyframes forecastBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+        .forecast-icon-storm { animation: forecastFlicker 1.8s ease-in-out infinite; }
+        @keyframes forecastFlicker { 0%, 100% { opacity: 1; } 45% { opacity: 1; } 50% { opacity: 0.4; } 55% { opacity: 1; } }
+        .forecast-icon-snow { animation: forecastFloat 3.4s ease-in-out infinite, forecastSpin 12s linear infinite; }
+        .forecast-temps { display: flex; gap: 8px; align-items: baseline; }
+        .forecast-max { font-size: 17px; color: var(--gold); font-family: 'Cormorant Garamond', serif; }
+        .forecast-min { font-size: 13px; color: var(--ink-soft); }
+        .forecast-pop {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          font-size: 10px;
+          color: var(--ink-soft);
+        }
+        .forecast-pop-track {
+          width: 6px;
+          height: 28px;
+          border-radius: 4px;
+          background: rgba(122, 167, 255, 0.15);
+          display: flex;
+          align-items: flex-end;
+          overflow: hidden;
+        }
+        .forecast-pop-bar {
+          width: 100%;
+          border-radius: 4px;
+          background: linear-gradient(180deg, #a8c4ff, #5a7fd4);
+          transition: height 1s ease;
+        }
+
+
         .moon-section { margin-bottom: 48px; text-align: center; }
         .moon-week {
           display: grid;
@@ -915,9 +1118,11 @@ function MoonPage({ lang }) {
           text-wrap: pretty;
         }
 
+        .forecast-card { overflow-x: auto; }
         @media (max-width: 800px) {
           .moon-hero { grid-template-columns: 1fr; text-align: center; padding: 32px; }
           .moon-weather-card { text-align: left; }
+          .forecast-inner { min-width: 560px; }
         }
       `}</style>
     </div>
