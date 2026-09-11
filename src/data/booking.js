@@ -129,6 +129,20 @@ window.arcanaDeleteReading = (id) => arcanaBookingCall('delete-reading', { id })
 // ignora el pedido si ya migró antes a esta socia (store.readingsMigrated).
 window.arcanaImportReadings = (readings) => arcanaBookingCall('import-readings', { readings }); // -> { readings }
 
+// Carta Astral real (2026-09-11) — geocodifica el lugar de nacimiento,
+// decide el acceso a la interpretación de IA según el plan (mismo
+// sistema de tickets que arcanaReadingAccess) y guarda/lista/actualiza/
+// borra la carta como un registro más en el perfil de la socia — ver
+// local-server.js / booking.mts (acciones geo-lookup, chart-access,
+// list-charts, save-chart, update-chart, delete-chart) y
+// src/data/astro-calc.js (el cálculo real en sí, corre en el navegador).
+window.arcanaGeoLookup = (place) => arcanaBookingCall('geo-lookup', { place }); // -> { lat, lon, timezone, displayName } (o { error })
+window.arcanaChartAccess = () => arcanaBookingCall('chart-access', {}); // -> { allowed, responseType, planKey, ticketId } (o error con .reason; el email se deriva de la sesión)
+window.arcanaListCharts = () => arcanaBookingCall('list-charts', {}); // -> { charts }
+window.arcanaSaveChart = (chart) => arcanaBookingCall('save-chart', { chart }); // -> { chart }
+window.arcanaUpdateChart = (id, patch) => arcanaBookingCall('update-chart', { id, patch }); // -> { chart }
+window.arcanaDeleteChart = (id) => arcanaBookingCall('delete-chart', { id }); // -> { ok }
+
 // Sesión de video mensual gratis del plan Oráculo — sin pasar por PayPal.
 window.arcanaCheckoutFree = (opts) => arcanaBookingCall('checkout-free', opts);
 

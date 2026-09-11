@@ -3,6 +3,7 @@
   "private": true,
   "description": "Lux Astral — no tiene build step (React/Babel vía CDN en Arcana.html). Este package.json existe solo para que Netlify pueda instalar y empaquetar las dependencias que usan las Functions.",
   "dependencies": {
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "^8.1.0",
+    "tz-lookup": "^6.1.25"
   }
 }

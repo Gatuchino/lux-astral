@@ -2,7 +2,14 @@
 // Servidor local de desarrollo para Arcana — sirve los archivos estáticos
 // y emula la función serverless /.netlify/functions/tarot-interpret con
 // la misma lógica que corre en Netlify (mismo modelo, mismo prompt).
-// Cero dependencias externas — solo Node.js (18+).
+// Cero dependencias externas de Anthropic/OpenAI/etc -- solo Node.js
+// (18+) y, desde 2026-09-11, un unico paquete npm chico (tz-lookup,
+// ~150KB) para resolver el huso horario real de la Carta Astral a
+// partir de sus coordenadas -- hace falta 'npm install' una vez en
+// esta carpeta para que 'node local-server.js' lo encuentre (en
+// produccion Netlify lo instala solo). Ver src/data/astro-calc.js
+// para el resto del calculo real de la carta (ese si corre 100%
+// en el navegador, sin ninguna dependencia).
 //
 // Uso:
 //   node local-server.js
@@ -16,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
 const crypto = require('crypto');
+const tzlookup = require('tz-lookup');
 
 const PORT = process.env.PORT || 8888;
 const ROOT = __dirname;
@@ -813,6 +821,7 @@ function loadBookingStore() {
     if (!store.readingTickets || typeof store.readingTickets !== 'object') store.readingTickets = {};
     if (!store.readingsByEmail || typeof store.readingsByEmail !== 'object') store.readingsByEmail = {};
     if (!store.readingsMigrated || typeof store.readingsMigrated !== 'object') store.readingsMigrated = {};
+    if (!store.astralChartsByEmail || typeof store.astralChartsByEmail !== 'object') store.astralChartsByEmail = {};
     if (!store.feedback || typeof store.feedback !== 'object') store.feedback = { ratings: [], suggestions: [] };
     if (!Array.isArray(store.settings.powerUsers) || !store.settings.powerUsers.length) {
       store.settings.powerUsers = [...DEFAULT_POWER_USERS];
@@ -864,6 +873,7 @@ function loadBookingStore() {
       readingTickets: {},
       readingsByEmail: {},
       readingsMigrated: {},
+      astralChartsByEmail: {},
       feedback: { ratings: [], suggestions: [] },
       settings: {
         ...DEFAULT_SETTINGS,
@@ -1232,6 +1242,60 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
   const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, 'vela', spread);
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: 'vela', ticketId };
+}
+
+// 2026-09-11 (a pedido de Christian): la Carta Astral con interpretacion de
+// IA es un beneficio SOLO para planes pagos -- a diferencia de las lecturas
+// de tarot, el plan Vela no tiene ninguna consulta gratis aca (puede ver su
+// carta calculada, pero no la interpretacion). El tipo de respuesta es fijo
+// por plan (no elegible por la usuaria, a diferencia de reading-access) --
+// exactamente los tramos que definio Christian: Luna = tipo 3 (moderada),
+// Estrella = tipo 4 (mayor + 2 preguntas de seguimiento), Oraculo = tipo 5
+// (extensa + 5 preguntas). Reutiliza PLAN_RESPONSE_TYPE_DEFAULT e
+// issueReadingTicket tal cual -- mismo ticket, mismo tarot-interpret que
+// las lecturas de tarot (ver handleInterpret mas arriba).
+async function resolveChartAccess(store, email) {
+  const key = (email || '').trim().toLowerCase();
+  if (!key || !key.includes('@')) {
+    return { allowed: false, reason: 'email-required' };
+  }
+  const isSub = await verifySubscriberByEmail(store, key);
+  const sub = isSub ? store.subscribers.find((s) => s.email === key) : null;
+  if (!isSub || !sub || !PAID_PLAN_KEYS.includes(sub.planKey)) {
+    return { allowed: false, reason: 'requires-paid-plan' };
+  }
+  const responseType = PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
+  const ticketId = issueReadingTicket(store, key, responseType, sub.planKey, 'chart');
+  return { allowed: true, responseType, planKey: sub.planKey, ticketId };
+}
+
+// 2026-09-11: geocodifica el lugar de nacimiento (texto libre) a
+// lat/lon + huso horario IANA, para el calculo real de Carta Astral (ver
+// src/data/astro-calc.js, que hace el resto del calculo en el navegador
+// con esos datos). Nominatim (OpenStreetMap) es gratis y no pide API key
+// -- si el volumen crece y hace falta mas velocidad/cupo, se puede migrar
+// a LocationIQ (tambien gratis hasta 5000 consultas/dia, con API key) sin
+// tocar nada mas que esta funcion.
+const NOMINATIM_USER_AGENT = 'LuxAstral/1.0 (https://luxastral.com; contacto@luxastral.com)';
+async function geocodePlace(place) {
+  const q = (place || '').trim();
+  if (!q) return { error: 'Escribi un lugar de nacimiento.' };
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=0&q=' + encodeURIComponent(q);
+  let res;
+  try {
+    res = await fetch(url, { headers: { 'User-Agent': NOMINATIM_USER_AGENT, 'Accept-Language': 'es' } });
+  } catch (e) {
+    return { error: 'No se pudo contactar al geocodificador.' };
+  }
+  if (!res.ok) return { error: 'No se pudo geocodificar el lugar (' + res.status + ').' };
+  const results = await res.json().catch(() => []);
+  const hit = Array.isArray(results) ? results[0] : null;
+  if (!hit) return { error: 'No encontramos ese lugar -- proba con una ciudad y pais mas especificos.' };
+  const lat = parseFloat(hit.lat), lon = parseFloat(hit.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { error: 'Respuesta invalida del geocodificador.' };
+  let timezone = '';
+  try { timezone = tzlookup(lat, lon); } catch (e) { timezone = ''; }
+  return { lat, lon, timezone, displayName: hit.display_name || q };
 }
 
 // Oráculo incluye 1 sesión de video gratis por mes de facturación — se
@@ -2530,6 +2594,76 @@ async function handleBooking(req, res, url) {
         saveBookingStore(store);
       }
       return sendJson(res, 200, { readings: store.readingsByEmail[email] || [] });
+    }
+
+    // ---------------------------------------------------------------
+    // Carta Astral real (2026-09-11, a pedido de Christian): geocodifica
+    // el lugar de nacimiento, decide el acceso a la interpretacion de IA
+    // segun el plan (mismo sistema de tickets que reading-access, ver
+    // resolveChartAccess arriba) y guarda la carta como un registro mas
+    // -- no es efimera, vive en el perfil de la socia (ver ProfilePage,
+    // seccion "Carta Astral"). Guardar es beneficio de socias con plan,
+    // igual que el historial de lecturas (save-reading).
+    // ---------------------------------------------------------------
+    if (action === 'geo-lookup') {
+      const result = await geocodePlace(payload.place);
+      return sendJson(res, result.error ? 400 : 200, result);
+    }
+
+    if (action === 'chart-access') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const result = await resolveChartAccess(store, email);
+      saveBookingStore(store);
+      return sendJson(res, result.allowed ? 200 : 403, result);
+    }
+
+    if (action === 'list-charts') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      return sendJson(res, 200, { charts: store.astralChartsByEmail[email] || [] });
+    }
+
+    if (action === 'save-chart') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const chart = payload.chart;
+      if (!chart || typeof chart !== 'object') {
+        return sendJson(res, 400, { error: 'Faltan datos de la carta.' });
+      }
+      const isSub = await verifySubscriberByEmail(store, email);
+      if (!isSub) return sendJson(res, 403, { error: 'Guardar la Carta Astral es un beneficio de las socias con plan.' });
+      if (!store.astralChartsByEmail[email]) store.astralChartsByEmail[email] = [];
+      const saved = { ...chart, id: chart.id || genId('ac'), email, createdAt: chart.createdAt || Date.now() };
+      store.astralChartsByEmail[email].push(saved);
+      saveBookingStore(store);
+      return sendJson(res, 200, { chart: saved });
+    }
+
+    if (action === 'update-chart') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const { id, patch: chartPatch } = payload;
+      if (!id || !chartPatch || typeof chartPatch !== 'object') {
+        return sendJson(res, 400, { error: 'Faltan datos para actualizar la carta.' });
+      }
+      const list = store.astralChartsByEmail[email] || [];
+      const idx = list.findIndex((c) => c.id === id);
+      if (idx === -1) return sendJson(res, 404, { error: 'No encontramos esa carta.' });
+      list[idx] = { ...list[idx], ...chartPatch };
+      saveBookingStore(store);
+      return sendJson(res, 200, { chart: list[idx] });
+    }
+
+    if (action === 'delete-chart') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const { id } = payload;
+      if (!id) return sendJson(res, 400, { error: 'Faltan datos para borrar la carta.' });
+      const list = store.astralChartsByEmail[email] || [];
+      store.astralChartsByEmail[email] = list.filter((c) => c.id !== id);
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (action === 'checkout-free') {

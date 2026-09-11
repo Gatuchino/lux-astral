@@ -114,10 +114,12 @@ function App() {
     window.arcanaLogout().catch(() => {});
     setProfileState(window.clearArcanaProfile());
     setReadings([]);
+    setCharts([]);
     setPlanInfo(null);
     setRoute({ page: 'home' });
   };
   const [readings, setReadings] = React.useState([]);
+  const [charts, setCharts] = React.useState([]); // Carta Astral real (2026-09-11) -- ver mas abajo, mismo patron que readings
   // Estado del plan (suscriptora o no, y qué plan) — se resuelve una sola
   // vez acá arriba a partir del email del perfil, y se comparte con
   // ReadingPage (guardado automático del historial, solo para pago) y
@@ -197,6 +199,37 @@ function App() {
     localStorage.setItem('vela_route', JSON.stringify(r));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  // Carta Astral real (2026-09-11, a pedido de Christian): mismo patron
+  // que el historial de lecturas arriba -- solo socias de pago tienen
+  // cartas guardadas en el servidor (Vela puede generar/ver la carta,
+  // pero no queda guardada, ver ChartPage).
+  React.useEffect(() => {
+    if (!profile.token || !isSubscriber) { setCharts([]); return undefined; }
+    let cancelled = false;
+    window.arcanaListCharts()
+      .then((res) => { if (!cancelled) setCharts(res.charts || []); })
+      .catch(() => { if (!cancelled) setCharts([]); });
+    return () => { cancelled = true; };
+  }, [profile.token, isSubscriber]);
+  const saveChart = (chart) => {
+    setCharts((prev) => [...prev, chart]);
+    if (profile.token) {
+      window.arcanaSaveChart(chart).catch((e) => console.error('[Arcana] no se pudo guardar la carta astral en el servidor', e));
+    }
+  };
+  const deleteChart = (id) => {
+    setCharts((prev) => prev.filter((c) => c.id !== id));
+    if (profile.token) {
+      window.arcanaDeleteChart(id).catch((e) => console.error('[Arcana] no se pudo borrar la carta astral en el servidor', e));
+    }
+  };
+  const updateChart = (id, patch) => {
+    setCharts((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    if (profile.token) {
+      window.arcanaUpdateChart(id, patch).catch((e) => console.error('[Arcana] no se pudo actualizar la carta astral en el servidor', e));
+    }
+  };
+
   const saveReading = (reading) => {
     setReadings((prev) => [...prev, reading]);
     if (profile.token) {
@@ -254,7 +287,7 @@ function App() {
     case 'readings':    page = <ReadingsPage lang={lang} setRoute={setRoute} />; break;
     case 'reading':     page = <ReadingPage lang={lang} setRoute={setRoute} spread={route.spread || 'three'} saveReading={saveReading} planInfo={planInfo} profile={profile} updateReading={updateReading} resumeReading={route.resumeReading || null} requireAuth={requireAuth} />; break;
     case 'library':     page = <LibraryPage lang={lang} />; break;
-    case 'chart':       page = <ChartPage lang={lang} />; break;
+    case 'chart':       page = <ChartPage lang={lang} profile={profile} planInfo={planInfo} setRoute={setRoute} requireAuth={requireAuth} saveChart={saveChart} updateChart={updateChart} />; break;
     case 'moon':        page = <MoonPage lang={lang} />; break;
     case 'marketplace': page = <MarketplacePage lang={lang} setRoute={setRoute} profile={profile} />; break;
     case 'sessioncheckout': page = <SessionCheckoutPage lang={lang} setRoute={setRoute} profile={profile} tarotistId={route.tarotistId} />; break;
@@ -262,7 +295,7 @@ function App() {
     case 'contact':     page = <ContactPage lang={lang} />; break;
     case 'about':       page = <AboutPage lang={lang} setRoute={setRoute} />; break;
     case 'merch':        page = <MerchPage lang={lang} setRoute={setRoute} />; break;
-    case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} onSignOut={signOut} requireAuth={requireAuth} />; break;
+    case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} charts={charts} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} deleteChart={deleteChart} onSignOut={signOut} requireAuth={requireAuth} />; break;
     case 'pricing':     page = <PricingPage lang={lang} setRoute={setRoute} profile={profile} />; break;
     case 'plancheckout': page = <PlanCheckoutPage lang={lang} setRoute={setRoute} profile={profile} planKey={route.planKey} billing={route.billing} />; break;
     case 'policies':    page = <PoliciesPage lang={lang} setRoute={setRoute} />; break;

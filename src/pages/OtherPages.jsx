@@ -1,37 +1,214 @@
 // Combined page module: Chart, Moon, Marketplace, Philosophy, Profile, Pricing
 
 // =========== Chart ===========
-function ChartPage({ lang }) {
+const CHART_SIGNS_ES = ['Aries', 'Tauro', 'Géminis', 'Cáncer', 'Leo', 'Virgo', 'Libra', 'Escorpio', 'Sagitario', 'Capricornio', 'Acuario', 'Piscis'];
+const CHART_SIGNS_EN = ['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo', 'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'];
+const CHART_GLYPHS = ['♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓'];
+const CHART_POINT_ORDER = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto'];
+const CHART_POINT_LABELS_ES = { sun: 'Sol', moon: 'Luna', mercury: 'Mercurio', venus: 'Venus', mars: 'Marte', jupiter: 'Júpiter', saturn: 'Saturno', uranus: 'Urano', neptune: 'Neptuno', pluto: 'Plutón' };
+const CHART_POINT_LABELS_EN = { sun: 'Sun', moon: 'Moon', mercury: 'Mercury', venus: 'Venus', mars: 'Mars', jupiter: 'Jupiter', saturn: 'Saturn', uranus: 'Uranus', neptune: 'Neptune', pluto: 'Pluto' };
+const CHART_POINT_SYMBOLS = { sun: '☉', moon: '☽', mercury: '☿', venus: '♀', mars: '♂', jupiter: '♃', saturn: '♄', uranus: '♅', neptune: '♆', pluto: '♇' };
+
+// Carta Astral real (2026-09-11, a pedido de Christian): reemplaza el
+// cálculo pseudo-random de antes por src/data/astro-calc.js (efemérides
+// real vía astronomy-engine) + geocodificación real del lugar de
+// nacimiento (acción "geo-lookup", ver local-server.js / booking.mts).
+// La interpretación de IA reutiliza el mismo sistema de tickets/tipos de
+// respuesta que las lecturas de tarot (ver PLAN_RESPONSE_TYPE_DEFAULT en
+// el backend) -- la proporcionalidad que pidió Christian: Vela ve la
+// carta pero sin interpretación, Luna tipo 3 (moderada), Estrella tipo 4
+// (mayor + 2 preguntas), Oráculo tipo 5 (extensa + 5 preguntas). Ya no es
+// efímera: las socias con plan pago la ven guardada en su Perfil (ver
+// AstralChartsSection más abajo).
+const CHART_RESPONSE_TYPES = {
+  '3': {
+    maxTokens: 1500, maxFollowUps: 0,
+    instr_es: 'Escribe una interpretación moderada de esta carta astral, de 3 a 4 párrafos: describe la personalidad y el momento de vida que sugiere esta combinación (Sol, Luna, Ascendente y los demás planetas), conectando los puntos entre sí en vez de listarlos uno por uno. Tono cálido, cercano, sin tecnicismos innecesarios. Máximo 450 palabras.',
+    instr_en: 'Write a moderate interpretation of this birth chart, 3 to 4 paragraphs: describe the personality and life moment suggested by this combination (Sun, Moon, Ascendant and the other planets), connecting the points to each other rather than listing them one by one. Warm, close tone, without unnecessary jargon. Maximum 450 words.',
+  },
+  '4': {
+    maxTokens: 1900, maxFollowUps: 2,
+    instr_es: 'Escribe una interpretación más elaborada de esta carta astral, de varios párrafos: dedica atención en profundidad al Sol, la Luna y el Ascendente, y después conecta el resto de los planetas en sus signos, mostrando tensiones y afinidades entre ellos. Actúas como una astróloga real en una sesión en vivo: esta es la lectura inicial de una conversación que puede seguir con hasta 2 preguntas de quien consulta. Máximo 800 palabras.',
+    instr_en: 'Write a more elaborate interpretation of this birth chart, several paragraphs: give in-depth attention to the Sun, Moon and Ascendant, then connect the rest of the planets by sign, showing tensions and affinities between them. You act as a real astrologer in a live session: this is the opening reading of a conversation that may continue with up to 2 questions from the querent. Maximum 800 words.',
+  },
+  '5': {
+    maxTokens: 2400, maxFollowUps: 5,
+    instr_es: 'Escribe un informe astrológico muy elaborado y extenso, con el máximo detalle posible: desarrolla el Sol, la Luna, el Ascendente y cada planeta en su signo, sus vínculos y matices, y qué retrato de conjunto arma toda la carta. Actúas como una astróloga real en una sesión en vivo, generosa en tiempo y detalle. Esta lectura puede seguir con hasta 5 preguntas de quien consulta antes de cerrar. Sé extensa y minuciosa.',
+    instr_en: 'Write a very elaborate and extensive astrological report, with as much detail as possible: develop the Sun, Moon, Ascendant and each planet in its sign, their links and nuances, and what overall portrait the whole chart paints. You act as a real astrologer in a live session, generous with time and detail. This reading may continue with up to 5 questions from the querent before closing. Be extensive and thorough.',
+  },
+};
+
+function buildChartDescription(chart, lang) {
+  const SIGNS = lang === 'es' ? CHART_SIGNS_ES : CHART_SIGNS_EN;
+  const LABELS = lang === 'es' ? CHART_POINT_LABELS_ES : CHART_POINT_LABELS_EN;
+  const lines = [];
+  if (chart.ascendant) lines.push(`- ${lang === 'es' ? 'Ascendente' : 'Ascendant'}: ${SIGNS[chart.ascendant.signIndex]} ${chart.ascendant.deg.toFixed(1)}°`);
+  CHART_POINT_ORDER.forEach((key) => {
+    const p = chart.planets[key];
+    if (p) lines.push(`- ${LABELS[key]}: ${SIGNS[p.signIndex]} ${p.deg.toFixed(1)}°`);
+  });
+  if (chart.midheaven) lines.push(`- ${lang === 'es' ? 'Medio Cielo' : 'Midheaven'}: ${SIGNS[chart.midheaven.signIndex]} ${chart.midheaven.deg.toFixed(1)}°`);
+  return lines.join('\n');
+}
+
+async function requestChartInterpretation({ chart, lang, responseType, ticketId }) {
+  const RT = CHART_RESPONSE_TYPES[responseType] || CHART_RESPONSE_TYPES['3'];
+  const profile = (window.getArcanaProfile && window.getArcanaProfile()) || { name: null, gender: null };
+  const genderLine = window.arcanaGenderInstruction ? window.arcanaGenderInstruction(profile.gender, lang) : '';
+  const nameLine = window.arcanaNameInstruction ? window.arcanaNameInstruction(profile.name, lang) : '';
+  const description = buildChartDescription(chart, lang);
+  const polarNote_es = chart.polarWarning ? '\n(No se pudo calcular el Ascendente ni el Medio Cielo con precisión por la latitud extrema del lugar de nacimiento -- concentra el análisis en los planetas.)' : '';
+  const polarNote_en = chart.polarWarning ? '\n(The Ascendant and Midheaven could not be calculated precisely due to the extreme latitude of the birthplace -- focus the analysis on the planets.)' : '';
+
+  const prompt = lang === 'es'
+    ? `Eres una astróloga experta y cálida. Escribes en español, en segunda persona, sin emoji ni titulares. ${genderLine} ${nameLine}\n\n${RT.instr_es}\n\nCarta astral real (posiciones tropicales calculadas para el momento y lugar de nacimiento):\n${description}\n${polarNote_es}`
+    : `You are a warm, expert astrologer. You write in English, second person, no emoji or headings.\n\n${RT.instr_en}\n\nReal birth chart (tropical positions calculated for the birth moment and place):\n${description}\n${polarNote_en}`;
+
+  const model = localStorage.getItem('arcana_setup_model') || undefined;
+  const provider = localStorage.getItem('arcana_setup_provider') || undefined;
+  return startJob(
+    { prompts: [prompt], maxTokensList: [RT.maxTokens], model, provider, ticketId, readingType: responseType },
+    'chart interpretation request failed'
+  );
+}
+
+async function requestChartFollowUpReply({ chart, lang, interpretation, followUps, newQuestion, ticketId }) {
+  const description = buildChartDescription(chart, lang);
+  const historyList = followUps.map((f, i) => (lang === 'es'
+    ? `Pregunta ${i + 1}: ${f.question}\nRespuesta: ${f.answer}`
+    : `Question ${i + 1}: ${f.question}\nAnswer: ${f.answer}`)).join('\n\n');
+  const prompt = lang === 'es'
+    ? `Eres la misma astróloga experta y cálida de esta conversación. Escribes en español, en segunda persona, sin emoji ni titulares.\n\nCarta astral real:\n${description}\n\nYa diste esta lectura inicial:\n${interpretation || ''}\n${historyList ? `\nConversación hasta ahora:\n${historyList}\n` : ''}\nQuien consulta ahora pregunta: "${newQuestion}"\n\nResponde como la misma astróloga, en 1 a 3 párrafos, cálida, honesta y específica a la pregunta.`
+    : `You are the same warm expert astrologer from this conversation. You write in English, second person, no emoji or headings.\n\nReal birth chart:\n${description}\n\nYou already gave this initial reading:\n${interpretation || ''}\n${historyList ? `\nConversation so far:\n${historyList}\n` : ''}\nThe querent now asks: "${newQuestion}"\n\nReply as the same astrologer, in 1 to 3 paragraphs, warm, honest and specific to the question.`;
+
+  const model = localStorage.getItem('arcana_setup_model') || undefined;
+  const provider = localStorage.getItem('arcana_setup_provider') || undefined;
+  return startJob(
+    { prompts: [prompt], maxTokensList: [900], model, provider, ticketId, isFollowUp: true },
+    'chart follow-up request failed'
+  );
+}
+
+function ChartPage({ lang, profile, planInfo, setRoute, requireAuth, saveChart, updateChart }) {
   const t = window.I18N[lang];
+  const es = lang === 'es';
   const [form, setForm] = React.useState({ date: '1990-03-14', time: '09:41', place: '' });
   const [chart, setChart] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [savedId, setSavedId] = React.useState(null);
 
-  const generate = (e) => {
+  const isSubscriber = !!(planInfo && planInfo.isSubscriber);
+
+  // ----- Interpretación de IA (misma lógica de tickets que las lecturas) -----
+  const [access, setAccess] = React.useState(null); // { responseType, planKey, ticketId } tras chart-access
+  const [interpretation, setInterpretation] = React.useState(null);
+  const [interpretBusy, setInterpretBusy] = React.useState(false);
+  const [interpretError, setInterpretError] = React.useState('');
+  const [followUps, setFollowUps] = React.useState([]);
+  const [followUpDraft, setFollowUpDraft] = React.useState('');
+  const [followUpBusy, setFollowUpBusy] = React.useState(false);
+  const [followUpError, setFollowUpError] = React.useState('');
+
+  const generate = async (e) => {
     e.preventDefault();
-    const d = new Date(form.date);
-    // deterministic pseudo-astrology based on date
-    const seed = d.getDate() + d.getMonth() * 31;
-    const signs = ['Aries', 'Tauro', 'Géminis', 'Cáncer', 'Leo', 'Virgo', 'Libra', 'Escorpio', 'Sagitario', 'Capricornio', 'Acuario', 'Piscis'];
-    const signsEn = ['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo', 'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'];
-    const glyphs = ['♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓'];
-    const sunI = d.getMonth();
-    setChart({
-      sun: { i: sunI, deg: d.getDate() },
-      moon: { i: (sunI + 4) % 12, deg: (seed * 3) % 30 },
-      rising: { i: (sunI + 7) % 12, deg: (seed * 5) % 30 },
-      venus: { i: (sunI + 2) % 12, deg: (seed * 7) % 30 },
-      mars: { i: (sunI + 9) % 12, deg: (seed * 11) % 30 },
-      mercury: { i: (sunI + 1) % 12, deg: (seed * 13) % 30 },
-      signs, signsEn, glyphs,
-    });
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    setChart(null);
+    setSavedId(null);
+    setAccess(null);
+    setInterpretation(null);
+    setFollowUps([]);
+    setInterpretError('');
+    setFollowUpError('');
+    try {
+      let lat, lon, timeZone, displayName;
+      const place = form.place.trim();
+      if (place) {
+        try {
+          const geo = await window.arcanaGeoLookup(place);
+          if (geo && !geo.error) {
+            lat = geo.lat; lon = geo.lon; timeZone = geo.timezone; displayName = geo.displayName;
+          } else {
+            setError(t.chart_place_not_found);
+          }
+        } catch (geoErr) {
+          setError(t.chart_place_not_found);
+        }
+      }
+      const result = window.ArcanaAstro.computeAstralChart({ dateStr: form.date, timeStr: form.time, lat, lon, timeZone });
+      setChart(result);
+      if (isSubscriber && profile && profile.token) {
+        const record = {
+          id: 'ac_' + Date.now(),
+          date: new Date().toISOString(),
+          lang,
+          birthDate: form.date,
+          birthTime: form.time,
+          birthPlace: displayName || place,
+          timezone: timeZone || '',
+          result,
+          interpretation: null,
+          followUps: [],
+        };
+        saveChart(record);
+        setSavedId(record.id);
+      }
+    } catch (err) {
+      setError((err && err.message) || (es ? 'No se pudo calcular la carta.' : 'Could not calculate the chart.'));
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const runInterpretation = async () => {
+    if (!profile || !profile.token) { requireAuth(() => {}); return; }
+    if (interpretBusy || !chart) return;
+    setInterpretBusy(true);
+    setInterpretError('');
+    try {
+      const acc = await window.arcanaChartAccess();
+      if (!acc.allowed) {
+        throw new Error(acc.reason === 'requires-paid-plan' ? t.chart_ai_locked_vela : t.chart_ai_error_generic);
+      }
+      setAccess(acc);
+      const text = await requestChartInterpretation({ chart, lang, responseType: acc.responseType, ticketId: acc.ticketId });
+      setInterpretation(text);
+      if (savedId) updateChart(savedId, { interpretation: text });
+    } catch (err) {
+      setInterpretError((err && err.message) || t.chart_ai_error_generic);
+    } finally {
+      setInterpretBusy(false);
+    }
+  };
+
+  const askFollowUp = async () => {
+    const q = followUpDraft.trim();
+    if (!q || followUpBusy || !access) return;
+    setFollowUpBusy(true);
+    setFollowUpError('');
+    try {
+      const answer = await requestChartFollowUpReply({ chart, lang, interpretation, followUps, newQuestion: q, ticketId: access.ticketId });
+      const next = [...followUps, { question: q, answer }];
+      setFollowUps(next);
+      setFollowUpDraft('');
+      if (savedId) updateChart(savedId, { followUps: next });
+    } catch (err) {
+      setFollowUpError((err && err.message) || (es ? 'No se pudo obtener una respuesta. Intentá de nuevo.' : 'Could not get a reply. Try again.'));
+    } finally {
+      setFollowUpBusy(false);
+    }
+  };
+
+  const RT = access ? CHART_RESPONSE_TYPES[access.responseType] : null;
 
   const planetRow = (label, p) => (
     <div className="ch-planet-row">
       <div className="ch-planet-label eyebrow">{label}</div>
       <div className="ch-planet-value">
-        <span className="ch-planet-glyph">{chart.glyphs[p.i]}</span>
-        <span className="italic">{lang === 'es' ? chart.signs[p.i] : chart.signsEn[p.i]} · {p.deg}°</span>
+        <span className="ch-planet-glyph">{CHART_GLYPHS[p.signIndex]}</span>
+        <span className="italic">{es ? CHART_SIGNS_ES[p.signIndex] : CHART_SIGNS_EN[p.signIndex]} · {p.deg.toFixed(1)}°</span>
       </div>
     </div>
   );
@@ -62,9 +239,10 @@ function ChartPage({ lang }) {
             <label>{t.chart_form_place}</label>
             <input type="text" placeholder={t.chart_form_place_ph} value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })} />
           </div>
-          <button type="submit" className="btn btn-primary btn-lg" style={{ width: '100%' }}>
-            {t.chart_generate} ✦
+          <button type="submit" className="btn btn-primary btn-lg" style={{ width: '100%' }} disabled={busy}>
+            {busy ? (es ? 'Calculando…' : 'Calculating…') : <>{t.chart_generate} ✦</>}
           </button>
+          {error && <p className="reveal-followup-error" style={{ marginTop: 12 }}>{error}</p>}
         </form>
 
         {chart && (
@@ -92,49 +270,140 @@ function ChartPage({ lang }) {
                     <g key={i}>
                       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#d4a85a" strokeWidth="0.5" opacity="0.4"/>
                       <text x={tx} y={ty} fontFamily="Cinzel" fontSize="14" fill="#d4a85a" textAnchor="middle" dominantBaseline="middle">
-                        {chart.glyphs[i]}
+                        {CHART_GLYPHS[i]}
                       </text>
                     </g>
                   );
                 })}
-                {/* Planet dots */}
-                {[
-                  { p: chart.sun,     sym: '☉', size: 6 },
-                  { p: chart.moon,    sym: '☽', size: 5 },
-                  { p: chart.venus,   sym: '♀', size: 4 },
-                  { p: chart.mars,    sym: '♂', size: 4 },
-                  { p: chart.mercury, sym: '☿', size: 4 },
-                ].map((pd, idx) => {
-                  const a = ((pd.p.i * 30 + pd.p.deg) - 90) * Math.PI / 180;
-                  const r = 88 + idx * 2;
+                {/* Ascendente / Medio Cielo -- eje real de la carta */}
+                {chart.ascendant && [
+                  { p: chart.ascendant, label: 'ASC' },
+                  ...(chart.midheaven ? [{ p: chart.midheaven, label: 'MC' }] : []),
+                ].map((axis, idx) => {
+                  const lonAbs = axis.p.signIndex * 30 + axis.p.deg;
+                  const a = (lonAbs - 90) * Math.PI / 180;
+                  const x2 = 150 + Math.cos(a) * 140;
+                  const y2 = 150 + Math.sin(a) * 140;
+                  const tx = 150 + Math.cos(a) * 152;
+                  const ty = 150 + Math.sin(a) * 152;
+                  return (
+                    <g key={`axis-${idx}`}>
+                      <line x1="150" y1="150" x2={x2} y2={y2} stroke="#f0e2c0" strokeWidth="1.1" opacity="0.85"/>
+                      <text x={tx} y={ty} fontFamily="Cinzel" fontSize="9" fill="#f0e2c0" textAnchor="middle" dominantBaseline="middle">
+                        {axis.label}
+                      </text>
+                    </g>
+                  );
+                })}
+                {/* Puntos planetarios */}
+                {CHART_POINT_ORDER.map((key, idx) => {
+                  const p = chart.planets[key];
+                  if (!p) return null;
+                  const a = ((p.signIndex * 30 + p.deg) - 90) * Math.PI / 180;
+                  const r = 84 + (idx % 5) * 4;
                   const x = 150 + Math.cos(a) * r;
                   const y = 150 + Math.sin(a) * r;
                   return (
-                    <g key={idx}>
-                      <circle cx={x} cy={y} r={pd.size} fill="#f0e2c0" opacity="0.9"/>
+                    <g key={key}>
+                      <circle cx={x} cy={y} r={key === 'sun' ? 6 : key === 'moon' ? 5 : 4} fill="#f0e2c0" opacity="0.9"/>
                       <text x={x} y={y + 1} fontFamily="Cinzel" fontSize="9" fill="#0f0a24" textAnchor="middle" dominantBaseline="middle">
-                        {pd.sym}
+                        {CHART_POINT_SYMBOLS[key]}
                       </text>
                     </g>
                   );
                 })}
                 <circle cx="150" cy="150" r="42" fill="#0f0a24" stroke="#d4a85a" strokeWidth="0.6"/>
                 <text x="150" y="145" fontFamily="Cinzel" fontSize="32" fill="#d4a85a" textAnchor="middle" dominantBaseline="middle">
-                  {chart.glyphs[chart.sun.i]}
+                  {CHART_GLYPHS[chart.planets.sun.signIndex]}
                 </text>
                 <text x="150" y="175" fontFamily="Cormorant Garamond" fontStyle="italic" fontSize="12" fill="#f0e2c0" textAnchor="middle">
-                  {lang === 'es' ? chart.signs[chart.sun.i] : chart.signsEn[chart.sun.i]}
+                  {es ? CHART_SIGNS_ES[chart.planets.sun.signIndex] : CHART_SIGNS_EN[chart.planets.sun.signIndex]}
                 </text>
               </svg>
             </div>
             <div className="chart-planets">
-              {planetRow(t.chart_sun, chart.sun)}
-              {planetRow(t.chart_moon, chart.moon)}
-              {planetRow(t.chart_rising, chart.rising)}
-              {planetRow(t.chart_venus, chart.venus)}
-              {planetRow(t.chart_mars, chart.mars)}
-              {planetRow(t.chart_mercury, chart.mercury)}
+              {chart.ascendant && planetRow(t.chart_rising, chart.ascendant)}
+              {planetRow(t.chart_sun, chart.planets.sun)}
+              {planetRow(t.chart_moon, chart.planets.moon)}
+              {planetRow(t.chart_mercury, chart.planets.mercury)}
+              {planetRow(t.chart_venus, chart.planets.venus)}
+              {planetRow(t.chart_mars, chart.planets.mars)}
+              {planetRow(t.chart_jupiter, chart.planets.jupiter)}
+              {planetRow(t.chart_saturn, chart.planets.saturn)}
+              {planetRow(t.chart_uranus, chart.planets.uranus)}
+              {planetRow(t.chart_neptune, chart.planets.neptune)}
+              {planetRow(t.chart_pluto, chart.planets.pluto)}
+              {chart.midheaven && planetRow(t.chart_midheaven, chart.midheaven)}
             </div>
+          </div>
+        )}
+
+        {chart && chart.polarWarning && (
+          <p className="italic" style={{ color: 'var(--ink-soft)', marginTop: 8 }}>{t.chart_polar_note}</p>
+        )}
+        {chart && savedId && (
+          <p className="italic" style={{ color: 'var(--ink-soft)', marginTop: 8 }}>{t.chart_saved_note}</p>
+        )}
+
+        {chart && (
+          <div className="chart-ai-card">
+            <div className="eyebrow">— {t.chart_ai_h} —</div>
+            {!interpretation && !interpretBusy && (
+              <p className="italic chart-ai-lead">{t.chart_ai_lead}</p>
+            )}
+
+            {!profile || !profile.token ? (
+              <div className="chart-ai-locked">
+                <p>{t.chart_ai_locked_guest}</p>
+                <button className="btn btn-primary" onClick={() => requireAuth(() => {})}>{t.chart_ai_locked_guest_cta}</button>
+              </div>
+            ) : !isSubscriber ? (
+              <div className="chart-ai-locked">
+                <p>{t.chart_ai_locked_vela}</p>
+                <button className="btn btn-primary" onClick={() => setRoute({ page: 'pricing' })}>{t.chart_ai_locked_vela_cta}</button>
+              </div>
+            ) : !interpretation ? (
+              <div>
+                <button className="btn btn-primary btn-lg" onClick={runInterpretation} disabled={interpretBusy}>
+                  {interpretBusy ? t.chart_ai_busy : t.chart_ai_cta}
+                </button>
+                {interpretError && <p className="reveal-followup-error" style={{ marginTop: 12 }}>{interpretError}</p>}
+              </div>
+            ) : (
+              <div className="chart-ai-text">
+                {renderInterpretationBlocks(interpretation)}
+
+                {followUps.map((f, i) => (
+                  <div key={i} className="reveal-followup-item">
+                    <div className="reveal-followup-q">— {f.question}</div>
+                    <div className="reveal-followup-a italic">{f.answer}</div>
+                  </div>
+                ))}
+
+                {RT && RT.maxFollowUps > 0 && (
+                  followUps.length < RT.maxFollowUps ? (
+                    <div className="reveal-followup-input" style={{ marginTop: 16 }}>
+                      <textarea
+                        className="form-field"
+                        value={followUpDraft}
+                        onChange={(e) => setFollowUpDraft(e.target.value)}
+                        placeholder={t.chart_ai_followup_ph}
+                        disabled={followUpBusy}
+                        rows={2}
+                      />
+                      <div className="reveal-followup-actions">
+                        <button className="btn btn-primary" onClick={askFollowUp} disabled={followUpBusy || !followUpDraft.trim()}>
+                          {followUpBusy ? t.chart_ai_followup_busy : t.chart_ai_followup_cta}
+                        </button>
+                      </div>
+                      {followUpError && <p className="reveal-followup-error">{followUpError}</p>}
+                    </div>
+                  ) : (
+                    <p className="italic reveal-followup-done">{t.chart_ai_followup_done}</p>
+                  )
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -189,6 +458,7 @@ function ChartPage({ lang }) {
           padding: 32px;
         }
         .chart-result {
+          grid-column: 2;
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 32px;
@@ -215,15 +485,26 @@ function ChartPage({ lang }) {
         }
         .ch-planet-glyph { font-family: 'Cinzel', serif; font-size: 22px; color: var(--gold); }
 
+        .chart-ai-card {
+          grid-column: 2;
+          background: rgba(26, 20, 56, 0.4);
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          padding: 32px;
+        }
+        .chart-ai-lead { color: var(--ink-soft); margin-bottom: 16px; }
+        .chart-ai-locked p { margin-bottom: 16px; color: var(--ink-soft); }
+        .chart-ai-text p { margin-bottom: 14px; line-height: 1.7; }
+
         @media (max-width: 900px) {
           .chart-container { grid-template-columns: 1fr; }
-          .chart-result { grid-template-columns: 1fr; }
+          .chart-result { grid-column: 1; grid-template-columns: 1fr; }
+          .chart-ai-card { grid-column: 1; }
         }
       `}</style>
     </div>
   );
 }
-
 // =========== Moon ===========
 function MoonPage({ lang }) {
   const t = window.I18N[lang];
@@ -951,7 +1232,7 @@ function buildMonthGrid(year, month) {
   return weeks;
 }
 
-function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInfo, deleteReading, updateReading, onSignOut, requireAuth }) {
+function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute, planInfo, deleteReading, updateReading, deleteChart, onSignOut, requireAuth }) {
   const { TarotCard } = window;
   const t = window.I18N[lang];
   const es = lang === 'es';
@@ -1028,6 +1309,8 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
     : null;
   // El Cofre de Respuestas es un beneficio solo de Estrella y Oráculo.
   const isCofreEligible = !!(planInfo && planInfo.isSubscriber && ['estrella', 'oraculo'].includes(planInfo.planKey));
+  // Carta Astral real (2026-09-11): a diferencia del Cofre (solo Estrella/Oraculo), esta seccion es para cualquier plan pago.
+  const isSubscriberForCharts = !!(planInfo && planInfo.isSubscriber);
 
   // 2026-09-10 (rediseño del Cofre a pedido de Christian): el Cofre ya no
   // se muestra apilado debajo del historial -- ahora es una pestaña propia
@@ -1372,7 +1655,7 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
         )}
       </div>
 
-      {isCofreEligible && (
+      {(isCofreEligible || isSubscriberForCharts) && (
         <div className="profile-tabs">
           <button
             className={`profile-tab-btn${profileTab === 'historial' ? ' is-active' : ''}`}
@@ -1380,12 +1663,22 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
           >
             📜 {es ? 'Mi historial' : 'My history'}
           </button>
-          <button
-            className={`profile-tab-btn profile-tab-btn-cofre${profileTab === 'cofre' ? ' is-active' : ''}`}
-            onClick={() => setProfileTab('cofre')}
-          >
-            ✦ {t.profile_cofre_h}
-          </button>
+          {isSubscriberForCharts && (
+            <button
+              className={`profile-tab-btn${profileTab === 'carta' ? ' is-active' : ''}`}
+              onClick={() => setProfileTab('carta')}
+            >
+              🔮 {t.profile_charts_tab}
+            </button>
+          )}
+          {isCofreEligible && (
+            <button
+              className={`profile-tab-btn profile-tab-btn-cofre${profileTab === 'cofre' ? ' is-active' : ''}`}
+              onClick={() => setProfileTab('cofre')}
+            >
+              ✦ {t.profile_cofre_h}
+            </button>
+          )}
         </div>
       )}
 
@@ -1512,6 +1805,10 @@ function ProfilePage({ lang, profile, updateProfile, readings, setRoute, planInf
           </React.Fragment>
         )}
       </div>
+      )}
+
+      {profileTab === 'carta' && isSubscriberForCharts && (
+        <AstralChartsSection charts={charts || []} lang={lang} t={t} es={es} onDelete={(id) => { if (window.confirm(t.profile_charts_delete_confirm)) deleteChart(id); }} />
       )}
 
       {profileTab === 'cofre' && isCofreEligible && (
@@ -2188,6 +2485,79 @@ function cofrePlayChime() {
     });
     setTimeout(() => { try { ctx.close(); } catch (e) {} }, 1300);
   } catch (e) { /* silencioso -- es solo un adorno sensorial */ }
+}
+
+// Carta Astral guardada (2026-09-11, a pedido de Christian): "un cuadro
+// de Carta Astral donde le puede hacer seguimiento y revisar cuando lo
+// estime conveniente" -- lista simple (mismo lenguaje visual que el
+// historial de lecturas), cada carta expandible para ver su
+// interpretación de IA y las preguntas de seguimiento ya hechas.
+function AstralChartsSection({ charts, lang, t, es, onDelete }) {
+  const [openId, setOpenId] = React.useState(null);
+  const sorted = [...charts].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const SIGNS = lang === 'es' ? CHART_SIGNS_ES : CHART_SIGNS_EN;
+
+  return (
+    <div className="profile-history">
+      <div className="profile-history-head">
+        <div className="eyebrow">— {t.profile_charts_h} —</div>
+      </div>
+      {sorted.length === 0 ? (
+        <div className="profile-empty">
+          <p className="italic">{t.profile_charts_empty}</p>
+        </div>
+      ) : (
+        <div className="profile-history-list">
+          {sorted.map((c) => {
+            const d = new Date(c.date);
+            const r = c.result || {};
+            const sunSign = r.planets && r.planets.sun ? SIGNS[r.planets.sun.signIndex] : '—';
+            const moonSign = r.planets && r.planets.moon ? SIGNS[r.planets.moon.signIndex] : '—';
+            const ascSign = r.ascendant ? SIGNS[r.ascendant.signIndex] : null;
+            const isOpen = openId === c.id;
+            return (
+              <div key={c.id} className="history-row">
+                <div className="history-body">
+                  <div className="history-date">
+                    {d.getDate()} {t.month_names[d.getMonth()]}, {d.getFullYear()}
+                  </div>
+                  <div className="history-spread">
+                    {c.birthPlace ? `${c.birthDate} · ${c.birthPlace}` : c.birthDate}
+                  </div>
+                  <div className="italic" style={{ fontSize: 14, marginTop: 4 }}>
+                    ☉ {sunSign} · ☽ {moonSign}{ascSign ? ` · ASC ${ascSign}` : ''}
+                  </div>
+                  {isOpen && (
+                    <div style={{ marginTop: 14 }}>
+                      {c.interpretation ? (
+                        renderInterpretationBlocks(c.interpretation)
+                      ) : (
+                        <p className="italic" style={{ color: 'var(--ink-soft)' }}>
+                          {es ? 'Todavía no le pediste una interpretación a la IA para esta carta.' : "You haven't asked AI for an interpretation of this chart yet."}
+                        </p>
+                      )}
+                      {(c.followUps || []).map((f, i) => (
+                        <div key={i} style={{ marginTop: 12 }}>
+                          <div style={{ fontWeight: 600 }}>— {f.question}</div>
+                          <div className="italic">{f.answer}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="history-actions">
+                  <button className="history-action-btn" title={isOpen ? t.profile_charts_hide : t.profile_charts_view} onClick={() => setOpenId(isOpen ? null : c.id)}>
+                    {isOpen ? '▲' : '👁'}
+                  </button>
+                  <button className="history-action-btn" title={es ? 'Borrar' : 'Delete'} onClick={() => onDelete(c.id)}>🗑</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CofreSection({ cofreReadings, lang, t, es, onView, onToggleSpecial, updateReading }) {
