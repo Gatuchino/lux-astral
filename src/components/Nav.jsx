@@ -27,6 +27,7 @@ function Nav({ route, setRoute, lang, setLang, profile, isPowerUser, onOpenAuth 
     ['marketplace', t.nav_marketplace],
     ['merch',       t.nav_merch],
     ['about',       t.nav_about],
+    ['blog',        t.nav_blog],
     ['pricing',     t.nav_pricing],
   ];
   return (

@@ -140,6 +140,7 @@ function HomePage({ lang, setRoute, dailyCard }) {
         <div className="footer-tagline italic">{t.home_footer_tagline}</div>
         <div className="footer-links">
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'about' }); }}>{t.nav_about}</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'blog' }); }}>{t.nav_blog}</a>
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'philosophy' }); }}>{t.nav_philosophy}</a>
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'library' }); }}>{t.nav_library}</a>
           <a href="#" onClick={(e) => { e.preventDefault(); setRoute({ page: 'pricing' }); }}>{t.pricing_h}</a>

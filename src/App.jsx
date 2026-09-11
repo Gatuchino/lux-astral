@@ -303,6 +303,8 @@ function App() {
     case 'philosophy':  page = <PhilosophyPage lang={lang} />; break;
     case 'contact':     page = <ContactPage lang={lang} />; break;
     case 'about':       page = <AboutPage lang={lang} setRoute={setRoute} />; break;
+    case 'blog':         page = <BlogPage lang={lang} setRoute={setRoute} />; break;
+    case 'blogpost':     page = <BlogPostPage lang={lang} setRoute={setRoute} slug={route.slug} />; break;
     case 'merch':        page = <MerchPage lang={lang} setRoute={setRoute} />; break;
     case 'profile':     page = <ProfilePage lang={lang} profile={profile} updateProfile={updateProfile} readings={readings} charts={charts} setRoute={setRoute} planInfo={planInfo} deleteReading={deleteReading} updateReading={updateReading} deleteChart={deleteChart} onSignOut={signOut} requireAuth={requireAuth} />; break;
     case 'pricing':     page = <PricingPage lang={lang} setRoute={setRoute} profile={profile} />; break;

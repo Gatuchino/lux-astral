@@ -477,7 +477,17 @@ window.I18N = {
 
     // Nav (nuevas)
     nav_about: "Sobre nosotros",
+    nav_blog: "Blog",
     nav_pricing: "Planes",
+    blog_eyebrow: "— Blog —",
+    blog_h: "Notas de Lux Astral",
+    blog_sub: "El tarot no predice, ordena. Estas son las notas cortas que explican esa idea, un arcano y una pregunta a la vez.",
+    blog_read_more: "Leer nota",
+    blog_min_read: "min de lectura",
+    blog_back: "Volver al blog",
+    blog_empty: "Todavia no hay notas publicadas.",
+    blog_cta_h: "¿Con ganas de una lectura de verdad?",
+    blog_cta_body: "Nada reemplaza tirar tus propias cartas.",
 
     // Onboarding
     onb_step: "Paso {i} de {n}",
@@ -1073,7 +1083,17 @@ window.I18N = {
 
     // Nav (new)
     nav_about: "About",
+    nav_blog: "Blog",
     nav_pricing: "Plans",
+    blog_eyebrow: "— Blog —",
+    blog_h: "Notes from Lux Astral",
+    blog_sub: "Tarot doesn't predict, it puts things in order. These are the short notes that unpack that idea, one arcana and one question at a time.",
+    blog_read_more: "Read note",
+    blog_min_read: "min read",
+    blog_back: "Back to blog",
+    blog_empty: "No notes published yet.",
+    blog_cta_h: "In the mood for a real reading?",
+    blog_cta_body: "Nothing replaces pulling your own cards.",
 
     // Onboarding
     onb_step: "Step {i} of {n}",
