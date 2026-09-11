@@ -2141,6 +2141,14 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
               ✦ {t.profile_cofre_h}
             </button>
           )}
+          {isSubscriberForCharts && (
+            <button
+              className={`profile-tab-btn${profileTab === 'evolucion' ? ' is-active' : ''}`}
+              onClick={() => setProfileTab('evolucion')}
+            >
+              📈 {es ? 'Tu evolución' : 'Your evolution'}
+            </button>
+          )}
         </div>
       )}
 
@@ -2284,6 +2292,10 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
           onToggleSpecial={onToggleSpecial}
           updateReading={updateReading}
         />
+      )}
+
+      {profileTab === 'evolucion' && isSubscriberForCharts && (
+        <EvolutionSection readings={readings} lang={lang} t={t} es={es} />
       )}
 
       {/* ===== Tu opinión y tu cuenta ===== */}
@@ -3018,6 +3030,114 @@ function AstralChartsSection({ charts, lang, t, es, onDelete }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ===== Tu evolución -- idea #5 de la auditoría de producto (a pedido de
+// Christian): qué cartas se repiten en el historial real de lecturas
+// guardadas de la usuaria. Es una lectura pura sobre "readings" (mismo
+// dato que ya trae ProfilePage) -- sin backend nuevo, sin costo de IA.
+function computeCardFrequency(readings) {
+  const map = new Map(); // cardId -> { count, reversedCount, lastDate }
+  (readings || []).forEach((r) => {
+    (r.picked || []).forEach((p) => {
+      const entry = map.get(p.id) || { count: 0, reversedCount: 0, lastDate: null };
+      entry.count += 1;
+      if (p.reversed) entry.reversedCount += 1;
+      const d = new Date(r.date);
+      if (!entry.lastDate || d > entry.lastDate) entry.lastDate = d;
+      map.set(p.id, entry);
+    });
+  });
+  return map;
+}
+
+function EvolutionSection({ readings, lang, t, es }) {
+  const freq = React.useMemo(() => computeCardFrequency(readings), [readings]);
+  const totalDraws = React.useMemo(
+    () => (readings || []).reduce((sum, r) => sum + (r.picked ? r.picked.length : 0), 0),
+    [readings]
+  );
+  const ranked = React.useMemo(() => {
+    return Array.from(freq.entries())
+      .map(([id, data]) => ({ id, ...data, card: window.TAROT_CARDS.all.find((c) => c.id === id) }))
+      .filter((x) => x.card)
+      .sort((a, b) => b.count - a.count || a.card.id - b.card.id)
+      .slice(0, 8);
+  }, [freq]);
+  const maxCount = ranked.length ? ranked[0].count : 0;
+  const hasPattern = ranked.length > 0 && maxCount > 1;
+
+  return (
+    <div className="profile-evolution">
+      <div className="profile-history-head">
+        <div className="eyebrow">— {es ? 'Tu evolución' : 'Your evolution'} —</div>
+        <p className="italic" style={{ color: 'var(--ink-soft)', marginTop: 8 }}>
+          {es
+            ? 'Las cartas que más se repiten en tus lecturas guardadas — a veces el patrón dice más que una sola tirada.'
+            : 'The cards that keep recurring in your saved readings — sometimes the pattern says more than any single draw.'}
+        </p>
+      </div>
+      {!hasPattern ? (
+        <div className="profile-empty">
+          <p className="italic">
+            {ranked.length === 0
+              ? (es ? 'Todavía no hay lecturas guardadas para encontrar un patrón.' : 'No saved readings yet to find a pattern.')
+              : (es
+                  ? 'Por ahora cada carta apareció una sola vez — seguí guardando lecturas y acá vas a ver qué se repite.'
+                  : "So far every card has come up just once — keep saving readings and you'll see what recurs here.")}
+          </p>
+        </div>
+      ) : (
+        <div className="evolution-chart" role="img" aria-label={es ? 'Cartas más recurrentes en tus lecturas' : 'Most recurring cards in your readings'}>
+          {ranked.map((row) => {
+            const name = es ? row.card.name_es : row.card.name_en;
+            const pct = maxCount ? Math.round((row.count / maxCount) * 100) : 0;
+            const lastSeen = row.lastDate ? row.lastDate.toLocaleDateString(es ? 'es-CL' : 'en-US') : '';
+            return (
+              <div
+                key={row.id}
+                className="evolution-row"
+                title={`${name}: ${row.count}${es ? ' veces' : ' times'}${lastSeen ? ' · ' + (es ? 'última vez ' : 'last seen ') + lastSeen : ''}`}
+              >
+                <div className="evolution-row-label">{name}</div>
+                <div className="evolution-row-track">
+                  <div className="evolution-row-bar" style={{ width: `${Math.max(6, pct)}%` }} />
+                </div>
+                <div className="evolution-row-count">
+                  {row.count}×{row.reversedCount > 0 ? ` (${row.reversedCount} ${es ? 'inv.' : 'rev.'})` : ''}
+                </div>
+              </div>
+            );
+          })}
+          <p className="italic evolution-caption">
+            {es
+              ? `${totalDraws} cartas en total a través de ${readings.length} lectura${readings.length === 1 ? '' : 's'} guardada${readings.length === 1 ? '' : 's'}.`
+              : `${totalDraws} cards total across ${readings.length} saved reading${readings.length === 1 ? '' : 's'}.`}
+          </p>
+        </div>
+      )}
+      <style>{`
+        .evolution-chart { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+        .evolution-row { display: grid; grid-template-columns: 160px 1fr 84px; align-items: center; gap: 14px; }
+        .evolution-row-label {
+          font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 0.04em; color: var(--ink);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .evolution-row-track { position: relative; height: 10px; border-radius: 6px; background: var(--bg-3); overflow: hidden; }
+        .evolution-row-bar {
+          height: 100%; border-radius: 6px;
+          background: linear-gradient(90deg, var(--gold-deep), var(--gold));
+          transition: width 0.6s cubic-bezier(0.16,1,0.3,1);
+        }
+        .evolution-row-count { font-size: 13px; color: var(--ink-soft); text-align: right; font-variant-numeric: tabular-nums; }
+        .evolution-caption { margin-top: 6px; color: var(--ink-mute); font-size: 13px; }
+        @media (max-width: 560px) {
+          .evolution-row { grid-template-columns: 110px 1fr 64px; gap: 8px; }
+          .evolution-row-label { font-size: 11px; }
+        }
+      `}</style>
     </div>
   );
 }
