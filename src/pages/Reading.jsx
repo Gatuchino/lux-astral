@@ -61,6 +61,7 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
   const [saveState, setSaveState] = React.useState(() => (resumeReading ? 'saved' : 'idle'));   // idle | saved
   const [saveUpsell, setSaveUpsell] = React.useState(false); // aviso "esto es para planes pagos" al clickear sin ser socia
   const [shareState, setShareState] = React.useState('idle'); // idle | copied
+  const [shareImgState, setShareImgState] = React.useState('idle'); // idle | busy | done | error
   const [regenCount, setRegenCount] = React.useState(0);
 
   // ---------- Tipo de respuesta: lo decide el backend según el plan ----------
@@ -447,6 +448,34 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
       document.body.removeChild(ta);
       setShareState('copied');
       setTimeout(() => setShareState('idle'), 2400);
+    }
+  };
+  // Tarjeta de resultado compartible (imagen PNG con las cartas de la
+  // tirada) -- a pedido de Christian. La generación vive en
+  // src/data/share-card.js (canvas, sin librerías externas); acá solo se
+  // arma la data real de esta lectura y se dispara compartir/descargar.
+  const handleShareImage = async () => {
+    if (shareImgState === 'busy') return;
+    setShareImgState('busy');
+    try {
+      const dateLabel = formatDate(new Date(), lang);
+      const blob = await window.renderReadingShareCard({
+        picked,
+        positions,
+        question,
+        dateLabel,
+        lang,
+        logoSrc: 'assets/logo-mark.png',
+      });
+      const result = await window.shareOrDownloadImage(blob, `lux-astral-lectura-${new Date().toISOString().slice(0, 10)}.png`, {
+        title: 'Lux Astral',
+        text: lang === 'es' ? 'Mi lectura de tarot en Lux Astral' : 'My tarot reading on Lux Astral',
+      });
+      setShareImgState(result === 'cancelled' ? 'idle' : 'done');
+      if (result !== 'cancelled') setTimeout(() => setShareImgState('idle'), 2400);
+    } catch (e) {
+      setShareImgState('error');
+      setTimeout(() => setShareImgState('idle'), 2800);
     }
   };
 
@@ -877,6 +906,15 @@ function ReadingPage({ lang, setRoute, spread, saveReading, planInfo, profile, u
               </button>
               <button className="btn btn-ghost" onClick={handleShare}>
                 {shareState === 'copied' ? `✓ ${t.result_shared}` : `⧉ ${t.result_share}`}
+              </button>
+              <button className="btn btn-ghost" onClick={handleShareImage} disabled={shareImgState === 'busy'}>
+                {shareImgState === 'busy'
+                  ? (lang === 'es' ? 'Generando…' : 'Generating…')
+                  : shareImgState === 'done'
+                  ? `✓ ${lang === 'es' ? 'Listo' : 'Done'}`
+                  : shareImgState === 'error'
+                  ? (lang === 'es' ? 'No se pudo generar' : "Couldn't generate")
+                  : `🖼 ${lang === 'es' ? 'Compartir imagen' : 'Share image'}`}
               </button>
               <button className="btn btn-ghost" onClick={() => setRoute({ page: 'readings' })}>
                 {t.result_new}
