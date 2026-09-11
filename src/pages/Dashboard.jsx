@@ -31,7 +31,7 @@ function DashboardPage({ lang, setRoute, profile, planInfo, readings, dailyCard,
     if (!profile || !profile.email) return;
     let cancelled = false;
     setBookings({ status: 'pending', list: [] });
-    window.arcanaFetchMyBookings(profile.email)
+    window.arcanaMyBookings(profile.email)
       .then((data) => {
         if (cancelled) return;
         const nowMs = Date.now();
