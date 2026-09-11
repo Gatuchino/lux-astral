@@ -199,6 +199,13 @@ window.I18N = {
     moon_sub: "El ciclo lunar como calendario emocional",
     moon_ritual_h: "Ritual sugerido",
     moon_week_h: "La semana",
+    weather_loading: "Cargando el clima de tu zona…",
+    weather_location_denied: "Activá tu ubicación para ver el clima de tu zona.",
+    weather_unsupported: "Tu navegador no permite compartir tu ubicación.",
+    weather_error: "No se pudo obtener el clima en este momento.",
+    weather_your_location: "Tu ubicación",
+    weather_humidity: "Humedad",
+    weather_wind: "Viento",
 
     // Marketplace — Arcana Tarot Live
     market_h: "Sesiones en vivo",
@@ -784,6 +791,13 @@ window.I18N = {
     moon_sub: "The lunar cycle as an emotional calendar",
     moon_ritual_h: "Suggested ritual",
     moon_week_h: "The week",
+    weather_loading: "Loading the weather for your area…",
+    weather_location_denied: "Enable your location to see the weather for your area.",
+    weather_unsupported: "Your browser doesn't support sharing your location.",
+    weather_error: "Couldn't fetch the weather right now.",
+    weather_your_location: "Your location",
+    weather_humidity: "Humidity",
+    weather_wind: "Wind",
 
     // Marketplace — Arcana Tarot Live
     market_h: "Live sessions",

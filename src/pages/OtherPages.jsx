@@ -506,11 +506,153 @@ function ChartPage({ lang, profile, planInfo, setRoute, requireAuth, saveChart, 
   );
 }
 // =========== Moon ===========
+
+// Fase lunar EXACTA (no aproximada) vía astronomy-engine -- el mismo motor
+// que usa Carta Astral (window.Astronomy, cargado por Arcana.html). Devuelve
+// la fracción real del disco iluminada (0..1) y el ángulo de fase real
+// (0°=luna nueva, 90°=cuarto creciente, 180°=llena, 270°=cuarto menguante).
+//
+// Antes esta página calculaba una aproximación triangular manual que además
+// tenía un bug de etiquetado real: en el instante exacto de luna llena
+// mostraba el texto "Luna nueva" (el bucket de fase se calculaba mal a
+// partir de un valor de iluminación que sube y baja). Se corrige acá usando
+// datos astronómicos reales.
+function getExactMoonPhase(date) {
+  const A = window.Astronomy;
+  if (!A) return { k: 0.5, angle: 90, waxing: true }; // fallback si Astronomy aún no cargó
+  const time = A.MakeTime(date);
+  const illum = A.Illumination(A.Body.Moon, time);
+  const angle = A.MoonPhase(time);
+  return { k: illum.phase_fraction, angle, waxing: angle < 180 };
+}
+
+function moonPhaseBucket(angleDeg) {
+  const a = ((angleDeg % 360) + 360) % 360;
+  if (a < 45 || a >= 315) return 0; // Luna nueva
+  if (a < 135) return 1;            // Cuarto creciente
+  if (a < 225) return 2;            // Luna llena
+  return 3;                          // Cuarto menguante
+}
+
+// Lado del disco iluminado, consciente del hemisferio real del usuario: en
+// el hemisferio norte la luna creciente se ve iluminada a la derecha y la
+// menguante a la izquierda; en el hemisferio sur se ve invertida. Sin
+// ubicación disponible se asume hemisferio norte (la convención más común
+// en ilustraciones astrológicas).
+function moonLitSide(waxing, hemisphere) {
+  const northSide = waxing ? 'right' : 'left';
+  if (hemisphere !== 'south') return northSide;
+  return northSide === 'right' ? 'left' : 'right';
+}
+
+// Trayectoria SVG de la sombra real del disco lunar (proyección del
+// terminador día/noche de una esfera), centrada en (0,0) con radio R.
+// rx = R*|1-2k| es el semieje del arco elíptico del terminador (ecuación
+// estándar de la proyección ortográfica del límite día/noche). Verificada
+// numéricamente antes de usarse: el área que encierra coincide con
+// (1-k)*pi*R^2 para k de 0 a 1, y el lado oscuro queda geométricamente del
+// lado correcto (no solo el área, también la posición), para litSide
+// 'right' y 'left'.
+function moonMaskPath(R, k, litSide) {
+  const kk = Math.min(1, Math.max(0, k));
+  const rx = R * Math.abs(1 - 2 * kk);
+  const darkBulge = litSide === 'right' ? -1 : 1;
+  const sweepBig = darkBulge === 1 ? 1 : 0;
+  const litBulge = -darkBulge;
+  const terminatorBulge = kk < 0.5 ? litBulge : darkBulge;
+  const sweepEllipse = terminatorBulge === 1 ? 1 : 0;
+  return `M 0,${-R} A ${R},${R} 0 0,${sweepBig} 0,${R} A ${rx},${R} 0 0,${sweepEllipse} 0,${-R} Z`;
+}
+
+// Interpretación de los códigos de clima WMO que devuelve Open-Meteo.
+const WEATHER_CODES = {
+  0: { es: 'Despejado', en: 'Clear sky', icon: '☀️', iconNight: '🌙' },
+  1: { es: 'Mayormente despejado', en: 'Mostly clear', icon: '🌤️', iconNight: '🌙' },
+  2: { es: 'Parcialmente nublado', en: 'Partly cloudy', icon: '⛅', iconNight: '☁️' },
+  3: { es: 'Nublado', en: 'Overcast', icon: '☁️' },
+  45: { es: 'Niebla', en: 'Fog', icon: '🌫️' },
+  48: { es: 'Niebla escarchada', en: 'Rime fog', icon: '🌫️' },
+  51: { es: 'Llovizna débil', en: 'Light drizzle', icon: '🌦️' },
+  53: { es: 'Llovizna', en: 'Drizzle', icon: '🌦️' },
+  55: { es: 'Llovizna intensa', en: 'Dense drizzle', icon: '🌧️' },
+  56: { es: 'Llovizna helada', en: 'Freezing drizzle', icon: '🌧️' },
+  57: { es: 'Llovizna helada intensa', en: 'Dense freezing drizzle', icon: '🌧️' },
+  61: { es: 'Lluvia débil', en: 'Light rain', icon: '🌦️' },
+  63: { es: 'Lluvia', en: 'Rain', icon: '🌧️' },
+  65: { es: 'Lluvia intensa', en: 'Heavy rain', icon: '🌧️' },
+  66: { es: 'Lluvia helada', en: 'Freezing rain', icon: '🌧️' },
+  67: { es: 'Lluvia helada intensa', en: 'Heavy freezing rain', icon: '🌧️' },
+  71: { es: 'Nieve débil', en: 'Light snow', icon: '🌨️' },
+  73: { es: 'Nieve', en: 'Snow', icon: '🌨️' },
+  75: { es: 'Nieve intensa', en: 'Heavy snow', icon: '❄️' },
+  77: { es: 'Granos de nieve', en: 'Snow grains', icon: '❄️' },
+  80: { es: 'Chubascos débiles', en: 'Light showers', icon: '🌦️' },
+  81: { es: 'Chubascos', en: 'Showers', icon: '🌧️' },
+  82: { es: 'Chubascos intensos', en: 'Violent showers', icon: '⛈️' },
+  85: { es: 'Chubascos de nieve', en: 'Snow showers', icon: '🌨️' },
+  86: { es: 'Chubascos de nieve intensos', en: 'Heavy snow showers', icon: '❄️' },
+  95: { es: 'Tormenta eléctrica', en: 'Thunderstorm', icon: '⛈️' },
+  96: { es: 'Tormenta con granizo', en: 'Thunderstorm with hail', icon: '⛈️' },
+  99: { es: 'Tormenta severa con granizo', en: 'Severe thunderstorm with hail', icon: '⛈️' },
+};
+function weatherLabel(code, isDay, lang) {
+  const w = WEATHER_CODES[code] || WEATHER_CODES[3];
+  const icon = (!isDay && w.iconNight) ? w.iconNight : w.icon;
+  return { text: lang === 'es' ? w.es : w.en, icon };
+}
+
+// Nombre de lugar aproximado a partir del huso horario IANA que ya viene en
+// la respuesta de Open-Meteo (ej. "America/Santiago" -> "Santiago") -- evita
+// una llamada extra de geocodificación inversa solo para una etiqueta.
+function placeLabelFromTimezone(tz) {
+  if (!tz || !tz.includes('/')) return null;
+  return tz.split('/').pop().replace(/_/g, ' ');
+}
+
+// Widget de clima real del lugar donde está el usuario -- Open-Meteo es
+// gratis, no pide API key y tiene CORS habilitado, así que se llama directo
+// desde el navegador sin pasar por el backend. Usa la misma geolocalización
+// que orienta la luna según el hemisferio (un solo permiso para las dos
+// cosas).
+function MoonWeatherCard({ lang, t, geo, weather }) {
+  if (weather.status === 'ok') {
+    const cur = weather.data.current;
+    const label = weatherLabel(cur.weather_code, cur.is_day, lang);
+    const place = placeLabelFromTimezone(weather.data.timezone) || t.weather_your_location;
+    return (
+      <div className="moon-weather-card">
+        <div className="moon-weather-icon">{label.icon}</div>
+        <div className="moon-weather-main">
+          <div className="moon-weather-place">{place}</div>
+          <div className="moon-weather-row">
+            <span className="moon-weather-temp">{Math.round(cur.temperature_2m)}°C</span>
+            <span className="moon-weather-desc">{label.text}</span>
+          </div>
+          <div className="moon-weather-extra">
+            <span>💧 {t.weather_humidity} {Math.round(cur.relative_humidity_2m)}%</span>
+            <span>💨 {t.weather_wind} {Math.round(cur.wind_speed_10m)} km/h</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  let msg = t.weather_loading;
+  if (geo.status === 'denied') msg = t.weather_location_denied;
+  else if (geo.status === 'unsupported') msg = t.weather_unsupported;
+  else if (weather.status === 'error') msg = t.weather_error;
+  return (
+    <div className="moon-weather-card moon-weather-status">
+      <span>🌦️</span>
+      <p>{msg}</p>
+    </div>
+  );
+}
+
 function MoonPage({ lang }) {
   const t = window.I18N[lang];
-  // simple lunar-phase approximation based on today
   const now = new Date();
-  const lp = getLunarPhase(now);
+  const moon = getExactMoonPhase(now);
+  const lp = moon.k * 100;
   const phases_es = ['Luna nueva', 'Cuarto creciente', 'Luna llena', 'Cuarto menguante'];
   const phases_en = ['New moon', 'Waxing moon', 'Full moon', 'Waning moon'];
   const rituals_es = [
@@ -525,14 +667,48 @@ function MoonPage({ lang }) {
     'Brew a warm infusion. Write a letter to your past self — don\'t send it. Read it silently.',
     'Tidy one drawer. In letting go of what you don\'t use, you make room for what will come.',
   ];
-  const currentPhase = Math.floor(lp / 25) % 4;
+  const currentPhase = moonPhaseBucket(moon.angle);
   const currentPhaseName = lang === 'es' ? phases_es[currentPhase] : phases_en[currentPhase];
   const ritualText = lang === 'es' ? rituals_es[currentPhase] : rituals_en[currentPhase];
   const week = [...Array(7)].map((_, i) => {
     const d = new Date(now);
     d.setDate(d.getDate() + i - 3);
-    return { d, phase: getLunarPhase(d) };
+    return { d, phase: getExactMoonPhase(d).k * 100 };
   });
+
+  // Geolocalización del navegador: orienta la luna según el hemisferio real
+  // del usuario y alimenta el widget de clima de abajo (un solo permiso
+  // para las dos cosas). Si se rechaza o no está disponible, la luna usa
+  // la convención de hemisferio norte y el widget muestra un aviso, sin
+  // bloquear el resto de la página.
+  const [geo, setGeo] = React.useState({ status: 'idle' });
+  React.useEffect(() => {
+    if (!('geolocation' in navigator)) { setGeo({ status: 'unsupported' }); return; }
+    setGeo({ status: 'pending' });
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setGeo({ status: 'ok', lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => setGeo({ status: 'denied' }),
+      { timeout: 8000, maximumAge: 10 * 60 * 1000 }
+    );
+  }, []);
+
+  const [weather, setWeather] = React.useState({ status: 'idle' });
+  React.useEffect(() => {
+    if (geo.status !== 'ok') return;
+    let cancelled = false;
+    setWeather({ status: 'pending' });
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&timezone=auto`;
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error('bad-status'); return r.json(); })
+      .then((data) => { if (!cancelled) setWeather({ status: 'ok', data }); })
+      .catch(() => { if (!cancelled) setWeather({ status: 'error' }); });
+    return () => { cancelled = true; };
+  }, [geo.status, geo.lat, geo.lon]);
+
+  const hemisphere = geo.status === 'ok' && geo.lat < 0 ? 'south' : 'north';
+  const litSide = moonLitSide(moon.waxing, hemisphere);
+  const R = 108;
+  const maskD = moonMaskPath(R, moon.k, litSide);
 
   return (
     <div className="page moon-page">
@@ -546,8 +722,23 @@ function MoonPage({ lang }) {
         <img src="assets/moon-phases-arc.jpg" alt="" aria-hidden="true" className="moon-hero-photo" />
         <div className="moon-hero-overlay" aria-hidden="true" />
         <div className="moon-visual">
-          <div className="moon-orb" style={{ '--illum': lp }}>
-            <div className="moon-shadow" />
+          <div className="moon-orb-real">
+            <svg viewBox={`0 0 ${R * 2} ${R * 2}`} className="moon-svg" aria-hidden="true">
+              <defs>
+                <clipPath id="moonDiscClip">
+                  <circle cx={R} cy={R} r={R - 2} />
+                </clipPath>
+              </defs>
+              <g clipPath="url(#moonDiscClip)">
+                <image
+                  href="assets/moon-real.webp"
+                  x="0" y="0" width={R * 2} height={R * 2}
+                  preserveAspectRatio="xMidYMid slice"
+                />
+                <path d={maskD} fill="rgba(8,6,22,0.9)" transform={`translate(${R},${R})`} />
+              </g>
+              <circle cx={R} cy={R} r={R - 1} fill="none" stroke="rgba(212,168,90,0.55)" strokeWidth="1.5" />
+            </svg>
           </div>
         </div>
         <div className="moon-info">
@@ -556,6 +747,7 @@ function MoonPage({ lang }) {
           <p className="moon-line italic">
             "{lang === 'es' ? 'Iluminada en este momento' : 'Illuminated at this moment'}"
           </p>
+          <MoonWeatherCard lang={lang} t={t} geo={geo} weather={weather} />
         </div>
       </div>
 
@@ -619,24 +811,19 @@ function MoonPage({ lang }) {
           z-index: -1;
         }
         .moon-visual { display: flex; justify-content: center; }
-        .moon-orb {
+        .moon-orb-real {
           width: 220px;
           height: 220px;
           border-radius: 50%;
-          background: radial-gradient(circle at 35% 35%, #fff8e0 0%, #f0e2c0 60%, #d4c8a0 100%);
-          box-shadow: 0 0 60px rgba(240, 226, 192, 0.35), inset -20px -20px 40px rgba(0, 0, 0, 0.3);
           position: relative;
-          overflow: hidden;
+          filter: drop-shadow(0 0 22px rgba(212, 168, 90, 0.45)) drop-shadow(0 0 50px rgba(140, 100, 255, 0.28));
+          animation: moonGlowPulse 6s ease-in-out infinite;
         }
-        .moon-shadow {
-          position: absolute;
-          inset: 0;
-          background: var(--bg);
-          border-radius: 50%;
-          transform: translateX(calc((100% - var(--illum) * 2%) * 1));
-          transition: transform 1.2s ease;
-          opacity: 0.92;
+        @keyframes moonGlowPulse {
+          0%, 100% { filter: drop-shadow(0 0 22px rgba(212, 168, 90, 0.45)) drop-shadow(0 0 50px rgba(140, 100, 255, 0.28)); }
+          50% { filter: drop-shadow(0 0 32px rgba(212, 168, 90, 0.65)) drop-shadow(0 0 72px rgba(140, 100, 255, 0.4)); }
         }
+        .moon-svg { width: 100%; height: 100%; display: block; }
         .moon-percent {
           font-size: clamp(64px, 8vw, 96px);
           font-weight: 400;
@@ -646,7 +833,33 @@ function MoonPage({ lang }) {
           font-family: 'Cormorant Garamond', serif;
           font-style: italic;
         }
-        .moon-line { font-size: 20px; color: var(--ink); }
+        .moon-line { font-size: 20px; color: var(--ink); margin-bottom: 20px; }
+
+        .moon-weather-card {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          padding: 18px 20px;
+          background: rgba(26, 20, 56, 0.45);
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          backdrop-filter: blur(2px);
+        }
+        .moon-weather-status { color: var(--ink-soft); font-size: 14px; }
+        .moon-weather-status p { margin: 0; }
+        .moon-weather-icon { font-size: 34px; line-height: 1; }
+        .moon-weather-main { display: flex; flex-direction: column; gap: 4px; }
+        .moon-weather-place {
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--ink-soft);
+        }
+        .moon-weather-row { display: flex; align-items: baseline; gap: 10px; }
+        .moon-weather-temp { font-size: 24px; color: var(--gold); font-family: 'Cormorant Garamond', serif; }
+        .moon-weather-desc { font-size: 14px; color: var(--ink); }
+        .moon-weather-extra { display: flex; gap: 14px; font-size: 12px; color: var(--ink-soft); }
 
         .moon-section { margin-bottom: 48px; text-align: center; }
         .moon-week {
@@ -704,24 +917,11 @@ function MoonPage({ lang }) {
 
         @media (max-width: 800px) {
           .moon-hero { grid-template-columns: 1fr; text-align: center; padding: 32px; }
+          .moon-weather-card { text-align: left; }
         }
       `}</style>
     </div>
   );
-}
-
-// Approximate lunar phase 0..100 (0 = new, 50 = full, 100 = ~new again)
-function getLunarPhase(date) {
-  const synodicMonth = 29.530588853;
-  const knownNew = new Date('2000-01-06T18:14:00Z').getTime();
-  const diff = (date.getTime() - knownNew) / (1000 * 60 * 60 * 24);
-  const cycle = ((diff % synodicMonth) + synodicMonth) % synodicMonth;
-  // Illumination: 0 at new, 50 at first quarter, 100 at full, 50 at third quarter
-  const norm = cycle / synodicMonth; // 0..1
-  const illum = norm < 0.5
-    ? norm * 2 * 100
-    : (1 - (norm - 0.5) * 2) * 100;
-  return illum;
 }
 
 // =========== Marketplace: Lux Astral — Live ===========
