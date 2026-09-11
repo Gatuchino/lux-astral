@@ -847,6 +847,7 @@ function loadBookingStore() {
       store.settings.newsletterSpecialDates = [...DEFAULT_NEWSLETTER_SPECIAL_DATES];
     }
     if (typeof store.settings.siteBaseUrl !== 'string') store.settings.siteBaseUrl = '';
+    if (store.settings.fxRate === undefined) store.settings.fxRate = null;
     return store;
   } catch (e) {
     // Primera vez: sembrar con la tarotista propia del sitio (sin horarios
@@ -890,6 +891,7 @@ function loadBookingStore() {
         newsletterSchedule: { ...DEFAULT_NEWSLETTER_SCHEDULE },
         newsletterSpecialDates: [...DEFAULT_NEWSLETTER_SPECIAL_DATES],
         siteBaseUrl: '',
+        fxRate: null,
       },
       setupSessions: {},
       eventLog: [],
@@ -1042,6 +1044,31 @@ const SUBSCRIPTION_PLAN_KEYS = [
   { key: 'oraculo_month', name: 'Lux Astral — Oráculo (mensual)', unit: 'MONTH', defaultValue: '24.00' },
   { key: 'oraculo_year', name: 'Lux Astral — Oráculo (anual)', unit: 'YEAR', defaultValue: '240.00' },
 ];
+
+// Tasa de cambio USD -> CLP (idea #6 de la auditoría de marketing) -- ver
+// el espejo completo y comentado en netlify/functions/booking.mts.
+async function getUsdClpRate(store) {
+  const cached = store.settings.fxRate;
+  const freshEnough = cached && cached.usdClp && cached.updatedAt &&
+    (Date.now() - new Date(cached.updatedAt).getTime() < 20 * 60 * 60 * 1000);
+  if (freshEnough) return cached;
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD');
+    if (res.ok) {
+      const data = await res.json();
+      const rate = data && data.rates && data.rates.CLP;
+      if (Number.isFinite(rate) && rate > 0) {
+        const fresh = { usdClp: Math.round(rate), updatedAt: new Date().toISOString() };
+        store.settings.fxRate = fresh;
+        saveBookingStore(store);
+        return fresh;
+      }
+    }
+  } catch (_err) {
+    // sin red o API caída -- seguimos con lo que haya en caché.
+  }
+  return cached || null;
+}
 
 function getPlanPrices(store) {
   const prices = {};
@@ -1736,6 +1763,7 @@ async function handleBooking(req, res, url) {
       const action = url.searchParams.get('action');
       const store = loadBookingStore();
       if (action === 'tarotistas') {
+        await getUsdClpRate(store); // refresca store.settings.fxRate si está vencido (idea #6)
         return sendJson(res, 200, {
           tarotists: publicTarotists(store),
           settings: store.settings,
@@ -1807,11 +1835,14 @@ async function handleBooking(req, res, url) {
         return sendJson(res, 200, buildExperienciaLecturaSummary(store));
       }
       if (action === 'subscription-plans') {
+        const fx = await getUsdClpRate(store);
         return sendJson(res, 200, {
           plans: store.settings.paypalPlanIds || null,
           paypalClientId: process.env.PAYPAL_CLIENT_ID || '',
           planPrices: getPlanPrices(store),
           sessionBasePrice: store.settings.sessionBasePrice,
+          usdClpRate: fx ? fx.usdClp : null,
+          usdClpUpdatedAt: fx ? fx.updatedAt : null,
         });
       }
       if (action === 'subscriber-status') {

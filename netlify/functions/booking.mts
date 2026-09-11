@@ -494,6 +494,7 @@ function seedStore() {
       newsletterSchedule: { ...DEFAULT_NEWSLETTER_SCHEDULE },
       newsletterSpecialDates: [...DEFAULT_NEWSLETTER_SPECIAL_DATES],
       siteBaseUrl: "" as string,
+      fxRate: null as { usdClp: number; updatedAt: string } | null,
     },
     setupSessions: {} as Record<string, any>,
     eventLog: [] as any[],
@@ -526,6 +527,7 @@ async function loadStore() {
   if (!Array.isArray(raw.pushSubscriptions)) raw.pushSubscriptions = [];
   if (!raw.astralChartsByEmail || typeof raw.astralChartsByEmail !== "object") raw.astralChartsByEmail = {};
   if (!raw.feedback || typeof raw.feedback !== "object") raw.feedback = { ratings: [], suggestions: [] };
+  if (raw.settings.fxRate === undefined) raw.settings.fxRate = null;
   if (!Array.isArray(raw.settings.powerUsers) || !raw.settings.powerUsers.length) {
     raw.settings.powerUsers = [...DEFAULT_POWER_USERS];
   }
@@ -687,6 +689,34 @@ const SUBSCRIPTION_PLAN_KEYS = [
   { key: "oraculo_month", name: "Lux Astral — Oráculo (mensual)", unit: "MONTH", defaultValue: "24.00" },
   { key: "oraculo_year", name: "Lux Astral — Oráculo (anual)", unit: "YEAR", defaultValue: "240.00" },
 ];
+
+// Tasa de cambio USD -> CLP (idea #6 de la auditoría de marketing: mostrar
+// el precio también en moneda local para bajar la fricción de conversión
+// mental). Se cachea en store.settings.fxRate y se refresca como máximo una
+// vez cada 20 horas; si la API externa falla, devolvemos el último valor
+// cacheado (aunque esté vencido) en vez de inventar un número.
+async function getUsdClpRate(store: any): Promise<{ usdClp: number; updatedAt: string } | null> {
+  const cached = store.settings.fxRate;
+  const freshEnough = cached && cached.usdClp && cached.updatedAt &&
+    (Date.now() - new Date(cached.updatedAt).getTime() < 20 * 60 * 60 * 1000);
+  if (freshEnough) return cached;
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD");
+    if (res.ok) {
+      const data: any = await res.json();
+      const rate = data && data.rates && data.rates.CLP;
+      if (Number.isFinite(rate) && rate > 0) {
+        const fresh = { usdClp: Math.round(rate), updatedAt: new Date().toISOString() };
+        store.settings.fxRate = fresh;
+        await saveStore(store);
+        return fresh;
+      }
+    }
+  } catch (_err) {
+    // sin red o API caída -- seguimos con lo que haya en caché.
+  }
+  return cached || null;
+}
 
 function getPlanPrices(store: any) {
   const prices: Record<string, string> = {};
@@ -1362,6 +1392,7 @@ export default async (req: Request) => {
       const action = url.searchParams.get("action");
       const store = await loadStore();
       if (action === "tarotistas") {
+        await getUsdClpRate(store); // refresca store.settings.fxRate si está vencido (idea #6)
         return json(200, {
           tarotists: publicTarotists(store),
           settings: store.settings,
@@ -1421,11 +1452,14 @@ export default async (req: Request) => {
         return json(200, { sessions: list });
       }
       if (action === "subscription-plans") {
+        const fx = await getUsdClpRate(store);
         return json(200, {
           plans: store.settings.paypalPlanIds || null,
           paypalClientId: Netlify.env.get("PAYPAL_CLIENT_ID") || "",
           planPrices: getPlanPrices(store),
           sessionBasePrice: store.settings.sessionBasePrice,
+          usdClpRate: fx ? fx.usdClp : null,
+          usdClpUpdatedAt: fx ? fx.updatedAt : null,
         });
       }
       if (action === "subscriber-status") {

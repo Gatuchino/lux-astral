@@ -3550,6 +3550,19 @@ const DEFAULT_PLAN_PRICES = {
   estrella_month: 9, estrella_year: 90,
   oraculo_month: 24, oraculo_year: 240,
 };
+// Equivalente aproximado en CLP (idea #6 de la auditoría de marketing --
+// bajar la fricción de conversión mental para quien paga en pesos chilenos).
+// `rate` es el store.settings.fxRate.usdClp que llega del backend, cacheado
+// y refrescado como máximo una vez al día -- ver getUsdClpRate() en
+// booking.mts / local-server.js. Si todavía no hay tasa (primera carga, o
+// la API externa está caída sin caché previo), no mostramos nada en vez de
+// inventar un número.
+function clpApprox(usdAmount, rate, es) {
+  if (!rate || !Number.isFinite(usdAmount) || usdAmount <= 0) return null;
+  const clp = Math.round((usdAmount * rate) / 100) * 100;
+  const formatted = clp.toLocaleString('es-CL');
+  return es ? `≈ $${formatted} CLP` : `≈ CLP $${formatted}`;
+}
 function planPriceFor(plansConfig, key) {
   const raw = plansConfig.planPrices && plansConfig.planPrices[key];
   const n = raw != null ? Number(raw) : DEFAULT_PLAN_PRICES[key];
@@ -3912,15 +3925,16 @@ function PricingPage({ lang, setRoute, profile }) {
   const sessionPriceRaw = plansConfig.sessionBasePrice;
   const sessionPrice = Number.isFinite(Number(sessionPriceRaw)) ? Number(sessionPriceRaw) : 29;
 
+  const fxRate = plansConfig.usdClpRate || null;
   const priceLabel = (planKey) => {
     const p = prices[planKey][billing];
-    if (p === 0) return { big: t.pricing_free_price, small: t.pricing_free_price_sub, currency: false };
+    if (p === 0) return { big: t.pricing_free_price, small: t.pricing_free_price_sub, currency: false, clp: null };
     // yearly: show monthly equivalent as headline (rounded), yearly total as sub
     if (billing === 'year') {
       const perMonth = Math.round((p / 12) * 10) / 10;
-      return { big: perMonth, small: `${t.pricing_currency}${p} ${t.pricing_per_year}`, currency: true, unit: t.pricing_per_month };
+      return { big: perMonth, small: `${t.pricing_currency}${p} ${t.pricing_per_year}`, currency: true, unit: t.pricing_per_month, clp: clpApprox(p, fxRate, es) };
     }
-    return { big: p, small: '', currency: true, unit: t.pricing_per_month };
+    return { big: p, small: '', currency: true, unit: t.pricing_per_month, clp: clpApprox(p, fxRate, es) };
   };
 
   const faqs = [
@@ -3974,6 +3988,7 @@ function PricingPage({ lang, setRoute, profile }) {
                 {price.unit && <span className="pp-unit">{price.unit}</span>}
               </div>
               <div className="plan-price-sub">{price.small || '\u00a0'}</div>
+              {price.clp && <div className="plan-price-clp">{price.clp}</div>}
 
               <p className="plan-desc">{plan.desc}</p>
 
@@ -4018,6 +4033,7 @@ function PricingPage({ lang, setRoute, profile }) {
             <span className="ms-price-big">{sessionPrice}</span>
             <span className="ms-price-unit">{t.pricing_market_price_unit}</span>
           </div>
+          {clpApprox(sessionPrice, fxRate, es) && <div className="plan-price-clp" style={{ marginBottom: 6 }}>{clpApprox(sessionPrice, fxRate, es)}</div>}
           <div className="ms-rate">{t.pricing_market_duration}</div>
           <button className="btn btn-ghost" onClick={() => go('marketplace')}>{t.pricing_market_cta} →</button>
         </div>
@@ -4205,6 +4221,13 @@ function PricingPage({ lang, setRoute, profile }) {
           color: var(--ink-mute);
           margin-top: 4px;
           min-height: 20px;
+        }
+        .plan-price-clp {
+          text-align: center;
+          font-size: 11.5px;
+          color: var(--ink-mute);
+          opacity: 0.75;
+          margin-top: -2px;
         }
 
         .plan-desc {
@@ -4690,6 +4713,7 @@ function PlanCheckoutPage({ lang, setRoute, profile, planKey: routePlanKey, bill
   const otherPlans = plans.filter((p) => p.key !== 'vela' && p.key !== selectedPlanKey);
   const price = planPriceFor(plansConfig, selectedPlanKey + '_' + selectedBilling);
   const priceUnit = selectedBilling === 'year' ? t.pricing_per_year : t.pricing_per_month;
+  const priceClp = clpApprox(price, plansConfig.usdClpRate, es);
   const HERO_IMG = { luna: 'assets/tarot-moon.jpg', estrella: 'assets/tarot-sun.jpg', oraculo: 'assets/cofre-bg.jpg' }[selectedPlanKey] || 'assets/tarot-moon.jpg';
 
   const steps = [
@@ -4782,6 +4806,7 @@ function PlanCheckoutPage({ lang, setRoute, profile, planKey: routePlanKey, bill
                 <span className="cp-big">{price}</span>
                 <span className="cp-unit">{priceUnit}</span>
               </div>
+              {priceClp && <div className="plan-price-clp" style={{ marginBottom: 8 }}>{priceClp}</div>}
               <p className="checkout-price-note">
                 {es
                   ? `Se te va a cobrar ${t.pricing_currency}${price} ${selectedBilling === 'year' ? 'una vez al año' : 'cada mes'}, de forma automática, hasta que canceles. Podés cancelar cuando quieras desde tu perfil, sin llamadas ni formularios.`
@@ -4823,7 +4848,7 @@ function PlanCheckoutPage({ lang, setRoute, profile, planKey: routePlanKey, bill
             <div className="checkout-summary">
               <div><span>{es ? 'Plan' : 'Plan'}</span><strong>{plan.name}</strong></div>
               <div><span>{es ? 'Ciclo' : 'Billing'}</span><strong>{selectedBilling === 'year' ? t.pricing_billing_year : t.pricing_billing_month}</strong></div>
-              <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{price} {priceUnit}</strong></div>
+              <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{price} {priceUnit}{priceClp ? ` (${priceClp})` : ''}</strong></div>
               <div><span>{t.market_book_email}</span><strong>{subEmail || '—'}</strong></div>
             </div>
 
@@ -5255,6 +5280,7 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
       ? Math.round(basePrice * (1 - discountPct / 100) * 100) / 100
       : basePrice;
   const chosenSlot = tarotist.availability && tarotist.availability.find((s) => s.id === slotId);
+  const displayPriceClp = clpApprox(displayPrice, settings.fxRate ? settings.fxRate.usdClp : null, es);
 
   const sessionFeatures = [t.pricing_sessions_f1, t.pricing_sessions_f2, t.pricing_sessions_f3, t.pricing_sessions_f4, t.pricing_sessions_f5];
 
@@ -5376,7 +5402,7 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
                   </div>
                   <div><span>{es ? 'Duración' : 'Duration'}</span><strong>45 min</strong></div>
                   <div><span>{t.market_book_email}</span><strong>{profile.email || '—'}</strong></div>
-                  <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{displayPrice} USD</strong></div>
+                  <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{displayPrice} USD{displayPriceClp ? ` (${displayPriceClp})` : ''}</strong></div>
                 </div>
 
                 {!!profile.token && (

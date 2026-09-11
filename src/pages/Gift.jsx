@@ -12,6 +12,12 @@ const GIFT_PLAN_META = {
 const GIFT_DEFAULT_PRICES = {
   luna_month: 6, luna_year: 60, estrella_month: 9, estrella_year: 90, oraculo_month: 24, oraculo_year: 240,
 };
+// Equivalente aproximado en CLP -- ver la versión comentada en OtherPages.jsx (PricingPage).
+function giftClpApprox(usdAmount, rate, es) {
+  if (!rate || !Number.isFinite(usdAmount) || usdAmount <= 0) return null;
+  const clp = Math.round((usdAmount * rate) / 100) * 100;
+  return (es ? '≈ $' : '≈ CLP $') + clp.toLocaleString('es-CL') + (es ? ' CLP' : '');
+}
 function giftPriceFor(planPrices, key) {
   const raw = planPrices && planPrices[key];
   const n = raw != null ? Number(raw) : GIFT_DEFAULT_PRICES[key];
@@ -103,6 +109,7 @@ function GiftPage({ lang, setRoute, profile, requireAuth }) {
         .gift-total { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--line); margin-bottom: 18px; }
         .gift-total-label { font-size: 14px; color: var(--ink-soft); }
         .gift-total-price { font-family: 'Cinzel', serif; font-size: 24px; color: var(--gold); }
+        .plan-price-clp { font-size: 11.5px; color: var(--ink-mute); opacity: 0.75; }
 
         .gift-code-box {
           text-align: center; padding: 28px; border-radius: 16px;
@@ -287,6 +294,9 @@ function GiftGiveSection({ lang, profile }) {
           <div className="gift-total">
             <span className="gift-total-label">{es ? 'Total a pagar' : 'Total to pay'}</span>
             <span className="gift-total-price">${price} USD</span>
+            {giftClpApprox(price, plansConfig.usdClpRate, es) && (
+              <div className="plan-price-clp" style={{ marginTop: 4 }}>{giftClpApprox(price, plansConfig.usdClpRate, es)}</div>
+            )}
           </div>
 
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setStep('payment')}>
