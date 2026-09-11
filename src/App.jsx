@@ -39,6 +39,12 @@ function App() {
   const [route, setRouteState] = React.useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
+      // Programa de referidos (idea #8): si llego con ?ref=CODIGO, lo
+      // guardamos para usarlo si se registra -- no afecta el ruteo.
+      const refParam = params.get('ref');
+      if (refParam) {
+        try { localStorage.setItem('vela_ref_code', refParam.trim().toUpperCase().slice(0, 20)); } catch {}
+      }
       const activateToken = params.get('activate');
       if (activateToken) {
         // Limpiamos el query string para que un refresh no vuelva a

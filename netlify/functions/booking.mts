@@ -484,6 +484,9 @@ function seedStore() {
     reviewsByTarotist: {} as Record<string, any[]>,
     giftCodes: [] as any[],
     pushSubscriptions: [] as any[],
+    referrals: [] as any[], // { id, code, referrerEmail, refereeEmail, status, createdAt, rewardedAt }
+    referralCodes: {} as Record<string, string>, // code -> referrerEmail
+    bonusReadingCredits: {} as Record<string, any[]>, // email -> [{ id, source, grantedAt, used }]
     astralChartsByEmail: {} as Record<string, any[]>,
     feedback: { ratings: [] as any[], suggestions: [] as any[] },
     settings: {
@@ -525,6 +528,9 @@ async function loadStore() {
   if (!raw.reviewsByTarotist || typeof raw.reviewsByTarotist !== "object") raw.reviewsByTarotist = {};
   if (!Array.isArray(raw.giftCodes)) raw.giftCodes = [];
   if (!Array.isArray(raw.pushSubscriptions)) raw.pushSubscriptions = [];
+  if (!Array.isArray(raw.referrals)) raw.referrals = [];
+  if (!raw.referralCodes || typeof raw.referralCodes !== "object") raw.referralCodes = {};
+  if (!raw.bonusReadingCredits || typeof raw.bonusReadingCredits !== "object") raw.bonusReadingCredits = {};
   if (!raw.astralChartsByEmail || typeof raw.astralChartsByEmail !== "object") raw.astralChartsByEmail = {};
   if (!raw.feedback || typeof raw.feedback !== "object") raw.feedback = { ratings: [], suggestions: [] };
   if (raw.settings.fxRate === undefined) raw.settings.fxRate = null;
@@ -576,6 +582,40 @@ function genGiftCode() {
   let s = "";
   for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return "LUXGIFT-" + s;
+}
+// Programa de referidos (idea #8 de la auditoria de marketing): un codigo
+// corto por cuenta, sin prefijo (URLs cortas: ?ref=AB3X9K). No hace falta
+// chequear colisiones -- 32^6 combinaciones para la escala de este sitio.
+function genReferralCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+function ensureReferralCode(store: any, email: string) {
+  const u = findUserByEmail(store, email);
+  if (!u) return null;
+  if (!u.referralCode) {
+    u.referralCode = genReferralCode();
+    store.referralCodes[u.referralCode] = email;
+  }
+  return u.referralCode;
+}
+// Se llama al resolver CUALQUIER acceso a lectura (gratis, con credito de
+// regalo/bono, o de plan pago) -- si esta usuaria fue referida y todavia
+// no se le pago el premio a la duo, esta es su "primera lectura completa"
+// y se reparte una tirada Luna gratis a las dos (referidora y referida).
+async function maybeRewardReferral(store: any, email: string) {
+  const ref = store.referrals.find((r: any) => r.refereeEmail === email && r.status === "pending");
+  if (!ref) return;
+  ref.status = "rewarded";
+  ref.rewardedAt = new Date().toISOString();
+  for (const target of [ref.referrerEmail, ref.refereeEmail]) {
+    if (!store.bonusReadingCredits[target]) store.bonusReadingCredits[target] = [];
+    store.bonusReadingCredits[target].push({
+      id: crypto.randomUUID(), source: "referral", grantedAt: new Date().toISOString(), used: false,
+    });
+  }
 }
 function slotIsAvailable(slot: any) {
   if (slot.booked) return false;
@@ -910,7 +950,20 @@ async function resolveReadingAccess(store: any, email: string, spread: string, p
       ? preferredResponseType
       : PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
     const ticketId = issueReadingTicket(store, key, responseType, sub.planKey, spread);
+    await maybeRewardReferral(store, key);
     return { allowed: true, responseType, planKey: sub.planKey, responseTypeOptions: options, ticketId };
+  }
+  // Credito de tirada Luna ganado por el programa de referidos (idea #8) --
+  // se consume antes que la cuota gratis del dia, sin pisar FREE_ALLOWED_SPREADS
+  // (mismo trato que un plan pago real: cualquier tirada, tipo de respuesta 3).
+  const bonusList = store.bonusReadingCredits[key] || [];
+  const bonusIdx = bonusList.findIndex((c: any) => !c.used);
+  if (bonusIdx !== -1) {
+    bonusList[bonusIdx].used = true;
+    bonusList[bonusIdx].usedAt = new Date().toISOString();
+    const ticketId = issueReadingTicket(store, key, "3", "luna", spread);
+    await maybeRewardReferral(store, key);
+    return { allowed: true, responseType: "3", planKey: "luna", ticketId, bonusReading: true };
   }
   if (!FREE_ALLOWED_SPREADS.includes(spread)) {
     return { allowed: false, reason: "spread-not-allowed" };
@@ -923,6 +976,7 @@ async function resolveReadingAccess(store: any, email: string, spread: string, p
   }
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
   const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, "vela", spread);
+  await maybeRewardReferral(store, key);
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: "vela", ticketId };
 }
 
@@ -1476,6 +1530,21 @@ export default async (req: Request) => {
           oraculoFreeSlotAvailable,
         });
       }
+      if (action === "referral-info") {
+        const email = requireUserAuth(store, { sessionToken: url.searchParams.get("sessionToken") || "" });
+        if (!email) return json(401, { error: "Sesion vencida - inicia sesion de nuevo." });
+        const code = ensureReferralCode(store, email);
+        await saveStore(store);
+        const mine = store.referrals.filter((r: any) => r.referrerEmail === email);
+        const bonusAvailable = (store.bonusReadingCredits[email] || []).filter((c: any) => !c.used).length;
+        return json(200, {
+          code,
+          link: code ? `${url.origin}/Arcana.html?ref=${code}` : "",
+          referredCount: mine.length,
+          rewardedCount: mine.filter((r: any) => r.status === "rewarded").length,
+          bonusAvailable,
+        });
+      }
       if (action === "list-memberships") {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get("setupToken") || "" })) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
         const list = store.subscribers.map((s: any) => ({
@@ -1568,7 +1637,15 @@ export default async (req: Request) => {
       prunePendingSignups(store);
       const { hash, salt } = await hashAccountPassword(pw);
       const verifyToken = crypto.randomUUID();
-      store.pendingSignups[email] = { passwordHash: hash, passwordSalt: salt, name, gender, verifyToken, createdAt: Date.now() };
+      // Programa de referidos (idea #8): validamos el codigo contra el
+      // indice store.referralCodes -- si no existe, o si alguien intenta
+      // "referirse a si misma" con su propio email, simplemente lo ignoramos
+      // (no rompe el signup).
+      const rawRefCode = String(payload.refCode || "").trim().toUpperCase();
+      const refCode = rawRefCode && store.referralCodes[rawRefCode] && store.referralCodes[rawRefCode] !== email
+        ? rawRefCode
+        : "";
+      store.pendingSignups[email] = { passwordHash: hash, passwordSalt: salt, name, gender, verifyToken, refCode, createdAt: Date.now() };
       await saveStore(store);
       const base = (payload.origin || "").replace(/\/$/, "");
       const verifyUrl = `${base}/Arcana.html?verify=${verifyToken}`;
@@ -1599,6 +1676,17 @@ export default async (req: Request) => {
         email: matchedEmail, passwordHash: pending.passwordHash, passwordSalt: pending.passwordSalt,
         name: pending.name || "", gender: pending.gender || null, photo: null, createdAt: new Date().toISOString(),
       });
+      ensureReferralCode(store, matchedEmail);
+      if (pending.refCode && store.referralCodes[pending.refCode]) {
+        store.referrals.push({
+          id: crypto.randomUUID(),
+          code: pending.refCode,
+          referrerEmail: store.referralCodes[pending.refCode],
+          refereeEmail: matchedEmail,
+          status: "pending",
+          createdAt: new Date().toISOString(),
+        });
+      }
       pruneUserSessions(store);
       const sessionToken = crypto.randomUUID();
       store.userSessions[sessionToken] = { email: matchedEmail, createdAt: Date.now() };

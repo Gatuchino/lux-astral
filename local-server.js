@@ -825,6 +825,9 @@ function loadBookingStore() {
     if (!store.reviewsByTarotist || typeof store.reviewsByTarotist !== 'object') store.reviewsByTarotist = {};
     if (!Array.isArray(store.giftCodes)) store.giftCodes = [];
     if (!Array.isArray(store.pushSubscriptions)) store.pushSubscriptions = [];
+    if (!Array.isArray(store.referrals)) store.referrals = [];
+    if (!store.referralCodes || typeof store.referralCodes !== 'object') store.referralCodes = {};
+    if (!store.bonusReadingCredits || typeof store.bonusReadingCredits !== 'object') store.bonusReadingCredits = {};
     if (!store.astralChartsByEmail || typeof store.astralChartsByEmail !== 'object') store.astralChartsByEmail = {};
     if (!store.feedback || typeof store.feedback !== 'object') store.feedback = { ratings: [], suggestions: [] };
     if (!Array.isArray(store.settings.powerUsers) || !store.settings.powerUsers.length) {
@@ -881,6 +884,9 @@ function loadBookingStore() {
       reviewsByTarotist: {},
       giftCodes: [],
       pushSubscriptions: [],
+      referrals: [],
+      referralCodes: {},
+      bonusReadingCredits: {},
       astralChartsByEmail: {},
       feedback: { ratings: [], suggestions: [] },
       settings: {
@@ -927,6 +933,35 @@ function genGiftCode() {
 // Un slot está disponible si nadie lo pagó todavía y no está "reservado en
 // caliente" (alguien yendo hacia PayPal ahora mismo, cae solo a los 15 min
 // si abandona el pago — evita doble venta sin necesitar un cron job).
+// Programa de referidos -- ver el espejo completo y comentado en
+// netlify/functions/booking.mts.
+function genReferralCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+function ensureReferralCode(store, email) {
+  const u = findUserByEmail(store, email);
+  if (!u) return null;
+  if (!u.referralCode) {
+    u.referralCode = genReferralCode();
+    store.referralCodes[u.referralCode] = email;
+  }
+  return u.referralCode;
+}
+async function maybeRewardReferral(store, email) {
+  const ref = store.referrals.find((r) => r.refereeEmail === email && r.status === 'pending');
+  if (!ref) return;
+  ref.status = 'rewarded';
+  ref.rewardedAt = new Date().toISOString();
+  for (const target of [ref.referrerEmail, ref.refereeEmail]) {
+    if (!store.bonusReadingCredits[target]) store.bonusReadingCredits[target] = [];
+    store.bonusReadingCredits[target].push({
+      id: crypto.randomUUID(), source: 'referral', grantedAt: new Date().toISOString(), used: false,
+    });
+  }
+}
 function slotIsAvailable(slot) {
   if (slot.booked) return false;
   if (slot.reservedUntil && new Date(slot.reservedUntil).getTime() > Date.now()) return false;
@@ -1296,7 +1331,19 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
       ? preferredResponseType
       : PLAN_RESPONSE_TYPE_DEFAULT[sub.planKey];
     const ticketId = issueReadingTicket(store, key, responseType, sub.planKey, spread);
+    await maybeRewardReferral(store, key);
     return { allowed: true, responseType, planKey: sub.planKey, responseTypeOptions: options, ticketId };
+  }
+  // Credito de tirada Luna ganado por el programa de referidos -- se
+  // consume antes que la cuota gratis del dia, sin pisar FREE_ALLOWED_SPREADS.
+  const bonusList = store.bonusReadingCredits[key] || [];
+  const bonusIdx = bonusList.findIndex((c) => !c.used);
+  if (bonusIdx !== -1) {
+    bonusList[bonusIdx].used = true;
+    bonusList[bonusIdx].usedAt = new Date().toISOString();
+    const ticketId = issueReadingTicket(store, key, '3', 'luna', spread);
+    await maybeRewardReferral(store, key);
+    return { allowed: true, responseType: '3', planKey: 'luna', ticketId, bonusReading: true };
   }
   // Plan Vela (gratis): 1 consulta al día, solo carta del día o tirada de 3.
   if (!FREE_ALLOWED_SPREADS.includes(spread)) {
@@ -1310,6 +1357,7 @@ async function resolveReadingAccess(store, email, spread, preferredResponseType)
   }
   store.freeReadingUsage[key] = { date: today, count: countToday + 1 };
   const ticketId = issueReadingTicket(store, key, FREE_RESPONSE_TYPE, 'vela', spread);
+  await maybeRewardReferral(store, key);
   return { allowed: true, responseType: FREE_RESPONSE_TYPE, planKey: 'vela', ticketId };
 }
 
@@ -1859,6 +1907,21 @@ async function handleBooking(req, res, url) {
           oraculoFreeSlotAvailable,
         });
       }
+      if (action === 'referral-info') {
+        const email = requireUserAuth(store, { sessionToken: url.searchParams.get('sessionToken') || '' });
+        if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+        const code = ensureReferralCode(store, email);
+        saveBookingStore(store);
+        const mine = store.referrals.filter((r) => r.referrerEmail === email);
+        const bonusAvailable = (store.bonusReadingCredits[email] || []).filter((c) => !c.used).length;
+        return sendJson(res, 200, {
+          code,
+          link: code ? `${url.origin}/Arcana.html?ref=${code}` : '',
+          referredCount: mine.length,
+          rewardedCount: mine.filter((r) => r.status === 'rewarded').length,
+          bonusAvailable,
+        });
+      }
       if (action === 'list-memberships') {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
         // Panel interno (Setup) — lista de membresías (ad-honores + pagas)
@@ -1932,7 +1995,11 @@ async function handleBooking(req, res, url) {
       prunePendingSignups(store);
       const { hash, salt } = hashAccountPassword(pw);
       const verifyToken = crypto.randomUUID();
-      store.pendingSignups[email] = { passwordHash: hash, passwordSalt: salt, name, gender, verifyToken, createdAt: Date.now() };
+      const rawRefCode = String(payload.refCode || '').trim().toUpperCase();
+      const refCode = rawRefCode && store.referralCodes[rawRefCode] && store.referralCodes[rawRefCode] !== email
+        ? rawRefCode
+        : '';
+      store.pendingSignups[email] = { passwordHash: hash, passwordSalt: salt, name, gender, verifyToken, refCode, createdAt: Date.now() };
       saveBookingStore(store);
       const base = (payload.origin || '').replace(/\/$/, '');
       const verifyUrl = `${base}/Arcana.html?verify=${verifyToken}`;
@@ -1963,6 +2030,17 @@ async function handleBooking(req, res, url) {
         email: matchedEmail, passwordHash: pending.passwordHash, passwordSalt: pending.passwordSalt,
         name: pending.name || '', gender: pending.gender || null, photo: null, createdAt: new Date().toISOString(),
       });
+      ensureReferralCode(store, matchedEmail);
+      if (pending.refCode && store.referralCodes[pending.refCode]) {
+        store.referrals.push({
+          id: crypto.randomUUID(),
+          code: pending.refCode,
+          referrerEmail: store.referralCodes[pending.refCode],
+          refereeEmail: matchedEmail,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+        });
+      }
       pruneUserSessions(store);
       const sessionToken = crypto.randomUUID();
       store.userSessions[sessionToken] = { email: matchedEmail, createdAt: Date.now() };

@@ -62,7 +62,19 @@ window.arcanaFetchTarotistas = async function () {
 // arcanaVerifyEmail. `origin` (window.location.origin) es necesario para
 // armar ese link -- el backend no tiene forma de saber solo el dominio
 // donde vive el sitio publicado.
-window.arcanaSignup = (opts) => arcanaBookingCall('signup', { origin: window.location.origin, ...opts }); // { email, password, name, gender, lang } -> { ok, pendingVerification, emailSent }
+// Programa de referidos (idea #8 de la auditoria de marketing): si esta
+// visitante llego por un link ?ref=CODIGO, App.jsx guarda ese codigo en
+// localStorage -- lo mandamos solo si el signup no trae uno explicito.
+window.arcanaSignup = (opts) => {
+  let storedRef = '';
+  try { storedRef = localStorage.getItem('vela_ref_code') || ''; } catch (e) {}
+  return arcanaBookingCall('signup', { origin: window.location.origin, refCode: storedRef, ...opts });
+}; // { email, password, name, gender, lang, refCode? } -> { ok, pendingVerification, emailSent }
+window.arcanaReferralInfo = async function () {
+  const res = await fetch('/.netlify/functions/booking?action=referral-info&sessionToken=' + encodeURIComponent(arcanaSessionToken()));
+  if (!res.ok) throw new Error('No se pudo cargar tu link de referidos.');
+  return res.json(); // { code, link, referredCount, rewardedCount, bonusAvailable }
+};
 window.arcanaLogin = (opts) => arcanaBookingCall('login', opts); // { email, password } -> { ok, token, user }
 window.arcanaVerifyEmail = (token) => arcanaBookingCall('verify-email', { token }); // -> { ok, token, user }
 window.arcanaLogout = () => arcanaBookingCall('logout', {});

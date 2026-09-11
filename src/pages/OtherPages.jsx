@@ -1741,6 +1741,33 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
       .finally(() => setPushBusy(false));
   };
 
+  // Programa de referidos (idea #8 de la auditoria de marketing): un link
+  // corto por cuenta -- cuando la persona invitada completa su primera
+  // lectura (gratis o paga), ambas reciben una tirada Luna gratis.
+  const [referral, setReferral] = React.useState(null);
+  const [showReferral, setShowReferral] = React.useState(false);
+  const [referralBusy, setReferralBusy] = React.useState(false);
+  const [referralError, setReferralError] = React.useState('');
+  const [referralCopied, setReferralCopied] = React.useState(false);
+  const openReferral = () => {
+    setShowReferral(true);
+    if (referral || referralBusy) return;
+    setReferralBusy(true);
+    setReferralError('');
+    window.arcanaReferralInfo()
+      .then(setReferral)
+      .catch((e) => setReferralError(e.message || (es ? 'No se pudo cargar tu link.' : 'Could not load your link.')))
+      .finally(() => setReferralBusy(false));
+  };
+  const copyReferralLink = () => {
+    if (!referral || !referral.link) return;
+    try {
+      navigator.clipboard.writeText(referral.link);
+      setReferralCopied(true);
+      setTimeout(() => setReferralCopied(false), 2000);
+    } catch (e) {}
+  };
+
   const startEdit = () => {
     setDraftName(profile.name || '');
     setDraftEmail(profile.email || '');
@@ -2044,10 +2071,54 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
             <button className="btn btn-ghost" onClick={togglePush} disabled={pushBusy}>
               {pushBusy ? '…' : pushSub ? `🔕 ${es ? 'Desactivar avisos' : 'Turn off alerts'}` : `🔔 ${es ? 'Avisos de sesión' : 'Session alerts'}`}
             </button>
+            {!!profile.token && (
+              <button className="btn btn-ghost" onClick={openReferral}>🎗️ {es ? 'Invitar amigas' : 'Invite friends'}</button>
+            )}
             {pushError && <p style={{ color: '#e08080', fontSize: 12, marginTop: 4 }}>{pushError}</p>}
           </div>
         )}
       </div>
+
+      {showReferral && (
+        <div className="referral-panel">
+          <div className="referral-panel-head">
+            <div>
+              <div className="eyebrow">{es ? '— Invitar amigas —' : '— Invite friends —'}</div>
+              <p className="referral-panel-sub italic">
+                {es
+                  ? 'Compartí tu link. Cuando la persona invitada complete su primera lectura, ambas reciben una tirada Luna gratis.'
+                  : "Share your link. When the person you invite completes their first reading, you both get a free Luna reading."}
+              </p>
+            </div>
+            <button className="referral-close" onClick={() => setShowReferral(false)} aria-label={es ? 'Cerrar' : 'Close'}>✕</button>
+          </div>
+          {referralBusy && <p className="italic" style={{ color: 'var(--ink-mute)' }}>{es ? 'Cargando…' : 'Loading…'}</p>}
+          {referralError && <p style={{ color: '#e08080', fontSize: 13 }}>{referralError}</p>}
+          {referral && referral.link && (
+            <>
+              <div className="referral-link-row">
+                <input type="text" readOnly value={referral.link} onFocus={(e) => e.target.select()} />
+                <button className="btn btn-primary" onClick={copyReferralLink}>
+                  {referralCopied ? (es ? '¡Copiado!' : 'Copied!') : (es ? 'Copiar' : 'Copy')}
+                </button>
+              </div>
+              <div className="referral-stats">
+                <span>{es ? `${referral.referredCount} invitadas` : `${referral.referredCount} invited`}</span>
+                <span>·</span>
+                <span>{es ? `${referral.rewardedCount} recompensadas` : `${referral.rewardedCount} rewarded`}</span>
+                {referral.bonusAvailable > 0 && (
+                  <>
+                    <span>·</span>
+                    <span className="referral-bonus">
+                      {es ? `${referral.bonusAvailable} tirada(s) Luna disponible(s)` : `${referral.bonusAvailable} Luna reading(s) available`}
+                    </span>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {editing && (
         <div className="profile-edit-form">
@@ -2533,6 +2604,58 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
 
       <style>{`
         .profile-page { max-width: 1100px; }
+        .referral-panel {
+          margin-top: 24px;
+          padding: 24px;
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          background: rgba(26, 20, 56, 0.3);
+        }
+        .referral-panel-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+        }
+        .referral-panel-sub {
+          font-size: 14px;
+          color: var(--ink-soft);
+          margin-top: 8px;
+          max-width: 520px;
+        }
+        .referral-close {
+          background: none;
+          border: none;
+          color: var(--ink-mute);
+          font-size: 16px;
+          cursor: pointer;
+          padding: 4px;
+        }
+        .referral-link-row {
+          display: flex;
+          gap: 10px;
+          margin-top: 18px;
+          flex-wrap: wrap;
+        }
+        .referral-link-row input {
+          flex: 1;
+          min-width: 200px;
+          padding: 10px 14px;
+          border-radius: 8px;
+          border: 1px solid var(--line);
+          background: rgba(15, 10, 36, 0.4);
+          color: var(--ink);
+          font-size: 13px;
+        }
+        .referral-stats {
+          margin-top: 14px;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          font-size: 13px;
+          color: var(--ink-mute);
+        }
+        .referral-bonus { color: var(--gold); }
         .profile-account-actions {
           margin-top: 56px;
           padding-top: 32px;
