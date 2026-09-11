@@ -39,6 +39,9 @@ function HomePage({ lang, setRoute, dailyCard }) {
               {t.home_cta_daily}
             </button>
           </div>
+          <button className="home-quickcard-link" onClick={() => setRoute({ page: 'quickcard' })}>
+            🃏 {lang === 'es' ? 'O sacá una carta rápida, sin preguntas' : 'Or draw a quick card, no questions'}
+          </button>
         </div>
         <div className="hero-daily">
           <div className="daily-label eyebrow">— {t.home_today} —</div>
@@ -207,6 +210,21 @@ function HomePage({ lang, setRoute, dailyCard }) {
           text-wrap: pretty;
         }
         .hero-ctas { display: flex; gap: 16px; flex-wrap: wrap; }
+        .home-quickcard-link {
+          background: none;
+          border: none;
+          cursor: pointer;
+          margin-top: 18px;
+          padding: 0;
+          font-family: 'Cormorant Garamond', serif;
+          font-style: italic;
+          font-size: 15px;
+          color: var(--ink-soft);
+          text-decoration: underline;
+          text-underline-offset: 3px;
+          text-decoration-color: var(--line-strong);
+        }
+        .home-quickcard-link:hover { color: var(--gold); }
 
         .hero-daily {
           display: flex;
