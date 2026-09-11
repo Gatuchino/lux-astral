@@ -9,6 +9,7 @@ function AboutPage({ lang, setRoute }) {
     { k: 4, h: t.about_promise_pillar_4_h, b: t.about_promise_pillar_4_body },
   ];
   const beliefs = [t.about_belief_1, t.about_belief_2, t.about_belief_3, t.about_belief_4];
+  const teamRoles = [t.about_team_role_1, t.about_team_role_2, t.about_team_role_3, t.about_team_role_4];
 
   return (
     <div className="page about">
@@ -81,6 +82,11 @@ function AboutPage({ lang, setRoute }) {
         <div className="ab-col-body">
           <h2 className="ab-section-h">{t.about_team_h}</h2>
           <p className="ab-body">{t.about_team_body}</p>
+          <ul className="team-roles">
+            {teamRoles.map((r, i) => (
+              <li key={i} className="team-role-pill">{r}</li>
+            ))}
+          </ul>
           <div className="ab-signed">{t.about_signed}</div>
         </div>
       </section>
@@ -289,6 +295,25 @@ function AboutPage({ lang, setRoute }) {
           text-wrap: pretty;
         }
 
+        .team-roles {
+          list-style: none;
+          padding: 0;
+          margin: 4px 0 28px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .team-role-pill {
+          font-family: 'Cinzel', serif;
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: var(--ink-soft);
+          border: 1px solid var(--line);
+          border-radius: 999px;
+          padding: 8px 16px;
+          background: rgba(26, 20, 56, 0.3);
+        }
         .ab-signed {
           margin-top: 24px;
           font-family: 'Cinzel', serif;
