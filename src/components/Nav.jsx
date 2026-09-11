@@ -64,6 +64,15 @@ function Nav({ route, setRoute, lang, setLang, profile, isPowerUser, onOpenAuth 
           <button className={lang === 'es' ? 'is-active' : ''} onClick={() => setLang('es')}>ES</button>
           <button className={lang === 'en' ? 'is-active' : ''} onClick={() => setLang('en')}>EN</button>
         </div>
+        {profile && profile.loggedIn && (
+          <button
+            className={`nav-setup-btn ${route.page === 'dashboard' ? 'is-active' : ''}`}
+            title={lang === 'es' ? 'Tu panel' : 'Your dashboard'}
+            onClick={() => setRoute({ page: 'dashboard' })}
+          >
+            📊
+          </button>
+        )}
         {profile && profile.loggedIn ? (
           <button
             className="btn btn-ghost"

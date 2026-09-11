@@ -54,6 +54,17 @@ window.arcanaFetchTarotistas = async function () {
   return res.json(); // { tarotists, settings }
 };
 
+// Próximas sesiones en vivo ya reservadas y pagadas por esta cuenta --
+// usado por el Dashboard unificado (idea #6 de la auditoría de producto).
+// La acción "my-bookings" ya existía en booking.mts/local-server.js sin
+// que nada del frontend la llamara todavía.
+window.arcanaFetchMyBookings = async function (email) {
+  if (!email) return { bookings: [] };
+  const res = await fetch('/.netlify/functions/booking?action=my-bookings&email=' + encodeURIComponent(email));
+  if (!res.ok) throw new Error('No se pudieron cargar tus sesiones reservadas.');
+  return res.json(); // { bookings: [{ id, accessCode, amount, tarotistName, when, durationMin, videoJoinFrom, videoJoinUntil }] }
+};
+
 // Cuentas reales (email + contraseña), obligatorias desde el primer
 // ingreso -- ver App.jsx (gate de autenticación) y AuthModal.jsx.
 // 2026-09-10: el signup ya no crea sesión al toque -- manda un email de
