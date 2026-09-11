@@ -152,6 +152,16 @@ window.arcanaMyBookings = async function (email) {
   return res.json(); // { bookings }
 };
 
+// Reseña pública de una sesión en vivo ya tomada (idea #7 de la
+// auditoría de producto) -- ver acciones "submit-review" y
+// "tarotist-reviews" en booking.mts/local-server.js.
+window.arcanaSubmitReview = (opts) => arcanaBookingCall('submit-review', opts); // { bookingId, rating, comment } -> { review }
+window.arcanaTarotistReviews = async function (tarotistId) {
+  const res = await fetch('/.netlify/functions/booking?action=tarotist-reviews&tarotistId=' + encodeURIComponent(tarotistId));
+  if (!res.ok) throw new Error('No se pudieron cargar las reseñas.');
+  return res.json(); // { count, avg, reviews: [{ rating, comment, date, customerFirstName }] }
+};
+
 // Videollamada (Daily.co embebido): dado el código de acceso, el backend
 // dice si la sesión ya se puede abrir. Ver ensureVideoRoom/acción "join"
 // en local-server.js / booking.mts para el detalle de la ventana horaria.

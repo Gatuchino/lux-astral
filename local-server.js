@@ -821,6 +821,7 @@ function loadBookingStore() {
     if (!store.readingTickets || typeof store.readingTickets !== 'object') store.readingTickets = {};
     if (!store.readingsByEmail || typeof store.readingsByEmail !== 'object') store.readingsByEmail = {};
     if (!store.readingsMigrated || typeof store.readingsMigrated !== 'object') store.readingsMigrated = {};
+    if (!store.reviewsByTarotist || typeof store.reviewsByTarotist !== 'object') store.reviewsByTarotist = {};
     if (!store.astralChartsByEmail || typeof store.astralChartsByEmail !== 'object') store.astralChartsByEmail = {};
     if (!store.feedback || typeof store.feedback !== 'object') store.feedback = { ratings: [], suggestions: [] };
     if (!Array.isArray(store.settings.powerUsers) || !store.settings.powerUsers.length) {
@@ -873,6 +874,7 @@ function loadBookingStore() {
       readingTickets: {},
       readingsByEmail: {},
       readingsMigrated: {},
+      reviewsByTarotist: {},
       astralChartsByEmail: {},
       feedback: { ratings: [], suggestions: [] },
       settings: {
@@ -918,11 +920,29 @@ function slotIsAvailable(slot) {
   return true;
 }
 
+// Idea #7 de la auditoria de producto -- mismo criterio que booking.mts:
+// reviewCount/reviewAvg reales a partir de reviewsByTarotist, y
+// completedSessions contando reservas pagadas cuyo horario ya paso.
 function publicTarotists(store) {
-  return store.tarotists.map((tr) => ({
-    ...tr,
-    availability: tr.availability.filter((s) => new Date(s.startsAt).getTime() > Date.now()),
-  }));
+  const now = Date.now();
+  return store.tarotists.map((tr) => {
+    const reviews = (store.reviewsByTarotist && store.reviewsByTarotist[tr.id]) || [];
+    const reviewCount = reviews.length;
+    const reviewAvg = reviewCount ? reviews.reduce((s, r) => s + r.rating, 0) / reviewCount : null;
+    const completedSessions = store.bookings.filter((b) => {
+      if (b.tarotistId !== tr.id || b.status !== 'paid') return false;
+      const slot = tr.availability.find((s) => s.id === b.slotId);
+      if (!slot) return false;
+      return new Date(slot.startsAt).getTime() + (slot.durationMin || 45) * 60000 < now;
+    }).length;
+    return {
+      ...tr,
+      availability: tr.availability.filter((s) => new Date(s.startsAt).getTime() > now),
+      reviewCount,
+      reviewAvg,
+      completedSessions,
+    };
+  });
 }
 
 // PayPal: nosotros somos el vendedor (no un Merchant of Record como
@@ -1655,14 +1675,31 @@ async function handleBooking(req, res, url) {
           .map((b) => {
             const tr = store.tarotists.find((x) => x.id === b.tarotistId);
             const slot = tr && tr.availability.find((s) => s.id === b.slotId);
+            const alreadyReviewed = !!(tr && store.reviewsByTarotist[tr.id] && store.reviewsByTarotist[tr.id].some((r) => r.bookingId === b.id));
+            const endsAt = slot ? new Date(slot.startsAt).getTime() + (slot.durationMin || 45) * 60000 : 0;
             return {
               id: b.id, accessCode: b.accessCode, amount: b.amount,
-              tarotistName: tr ? tr.name : '', when: slot ? slot.startsAt : null,
+              tarotistId: tr ? tr.id : null, tarotistName: tr ? tr.name : '', when: slot ? slot.startsAt : null,
               durationMin: slot ? slot.durationMin : null,
               videoJoinFrom: b.videoJoinFrom || null, videoJoinUntil: b.videoJoinUntil || null,
+              canReview: !alreadyReviewed && !!slot && Date.now() > endsAt,
+              alreadyReviewed,
             };
           });
         return sendJson(res, 200, { bookings: list });
+      }
+      if (action === 'tarotist-reviews') {
+        const tarotistId = (url.searchParams.get('tarotistId') || '').trim();
+        const list = ((store.reviewsByTarotist && store.reviewsByTarotist[tarotistId]) || [])
+          .slice()
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const count = list.length;
+        const avg = count ? list.reduce((s, r) => s + r.rating, 0) / count : null;
+        return sendJson(res, 200, {
+          count,
+          avg,
+          reviews: list.map((r) => ({ rating: r.rating, comment: r.comment, date: r.date, customerFirstName: r.customerFirstName })),
+        });
       }
       if (action === 'admin-sessions') {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
@@ -2572,6 +2609,48 @@ async function handleBooking(req, res, url) {
       store.readingsByEmail[email] = list.filter((r) => r.id !== id);
       saveBookingStore(store);
       return sendJson(res, 200, { ok: true });
+    }
+
+    // Reseña pública de una sesión en vivo ya tomada (idea #7 de la
+    // auditoría de producto) -- mismo criterio que booking.mts.
+    if (action === 'submit-review') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const { bookingId, comment } = payload;
+      const ratingNum = Math.round(Number(payload.rating));
+      if (!bookingId || !Number.isFinite(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+        return sendJson(res, 400, { error: 'Faltan datos válidos para la reseña (bookingId, rating de 1 a 5).' });
+      }
+      const booking = store.bookings.find((b) => b.id === bookingId);
+      if (!booking || booking.status !== 'paid' || booking.customerEmail.toLowerCase() !== email.toLowerCase()) {
+        return sendJson(res, 404, { error: 'No encontramos esa sesión reservada a tu nombre.' });
+      }
+      const tr = store.tarotists.find((x) => x.id === booking.tarotistId);
+      if (!tr) return sendJson(res, 404, { error: 'No encontramos a esa tarotista.' });
+      const slot = tr.availability.find((s) => s.id === booking.slotId);
+      const endsAt = slot ? new Date(slot.startsAt).getTime() + (slot.durationMin || 45) * 60000 : 0;
+      if (!slot || Date.now() < endsAt) {
+        return sendJson(res, 400, { error: 'Todavía no se puede reseñar: la sesión no terminó.' });
+      }
+      if (!store.reviewsByTarotist[tr.id]) store.reviewsByTarotist[tr.id] = [];
+      if (store.reviewsByTarotist[tr.id].some((r) => r.bookingId === bookingId)) {
+        return sendJson(res, 409, { error: 'Ya dejaste una reseña para esta sesión.' });
+      }
+      const user = findUserByEmail(store, email);
+      const rawName = (booking.customerName || (user && user.name) || '').trim();
+      const firstName = rawName.split(/\s+/)[0] || '—';
+      const review = {
+        id: genId('rev'),
+        bookingId,
+        tarotistId: tr.id,
+        rating: ratingNum,
+        comment: (comment || '').toString().slice(0, 600).trim(),
+        customerFirstName: firstName,
+        date: new Date().toISOString(),
+      };
+      store.reviewsByTarotist[tr.id].push(review);
+      saveBookingStore(store);
+      return sendJson(res, 200, { review });
     }
 
     if (action === 'import-readings') {

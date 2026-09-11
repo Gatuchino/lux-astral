@@ -1280,11 +1280,25 @@ function MarketplacePage({ lang, setRoute, profile }) {
                 </div>
                 <div>
                   <div className="eyebrow">{t.market_readings}</div>
-                  <div className="live-stat-v">{(tr.readings || 0).toLocaleString()}</div>
+                  {/* Idea #7 de la auditoría de producto: antes era tr.readings, un
+                      contador manual que nadie incrementaba (siempre 0). Ahora cuenta
+                      reservas pagadas cuyo horario ya pasó -- ver publicTarotists(). */}
+                  <div className="live-stat-v">{(tr.completedSessions || 0).toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="eyebrow">{lang === 'es' ? 'Valoración' : 'Rating'}</div>
-                  <div className="live-stat-v" style={{ color: 'var(--gold)' }}>★ {(tr.rating || 5).toFixed(1)}</div>
+                  <div className="eyebrow">{lang === 'es' ? 'Reseñas' : 'Reviews'}</div>
+                  {/* Antes era tr.rating hardcodeado en 5.0. Ahora, si hay reseñas
+                      reales (dejadas solo por quien tomó la sesión), se promedian;
+                      si todavía no hay ninguna, se dice honestamente "Nueva". */}
+                  {tr.reviewCount > 0 ? (
+                    <div className="live-stat-v" style={{ color: 'var(--gold)' }}>
+                      ★ {tr.reviewAvg.toFixed(1)} <span style={{ fontSize: 13, opacity: .7 }}>({tr.reviewCount})</span>
+                    </div>
+                  ) : (
+                    <div className="live-stat-v" style={{ color: 'var(--ink-mute)' }}>
+                      {lang === 'es' ? 'Nueva' : 'New'}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -5638,40 +5652,9 @@ function MyBookingsPage({ lang, setRoute }) {
       )}
 
       <div className="mybookings-list">
-        {sorted.map((b) => {
-          const now = Date.now();
-          const from = b.videoJoinFrom ? new Date(b.videoJoinFrom).getTime() : null;
-          const until = b.videoJoinUntil ? new Date(b.videoJoinUntil).getTime() : null;
-          let status = 'ready';
-          if (from && now < from) status = 'early';
-          else if (until && now > until) status = 'done';
-
-          return (
-            <div className="mybookings-item" key={b.id}>
-              <div className="mybookings-item-main">
-                <div className="mybookings-item-name">{b.tarotistName}</div>
-                <div className="mybookings-item-when italic">{formatWhen(b.when)}</div>
-                <div className="mybookings-item-code">{b.accessCode}</div>
-              </div>
-              <div className="mybookings-item-action">
-                {status === 'ready' && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setRoute && setRoute({ page: 'videocall', accessCode: b.accessCode })}
-                  >
-                    {t.mybookings_join} →
-                  </button>
-                )}
-                {status === 'early' && (
-                  <div className="italic mybookings-status">{t.mybookings_from} {formatWhen(b.videoJoinFrom)}</div>
-                )}
-                {status === 'done' && (
-                  <div className="italic mybookings-status">{t.mybookings_finished}</div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {sorted.map((b) => (
+          <MyBookingItem key={b.id} b={b} lang={lang} t={t} formatWhen={formatWhen} setRoute={setRoute} />
+        ))}
       </div>
 
       <style>{`
@@ -5693,7 +5676,120 @@ function MyBookingsPage({ lang, setRoute }) {
         .mybookings-item-when { font-size: 14px; color: var(--ink-soft); margin-top: 2px; }
         .mybookings-item-code { font-size: 12px; opacity: .6; margin-top: 4px; letter-spacing: .05em; }
         .mybookings-status { font-size: 13px; color: var(--ink-soft); }
+        .mybookings-review-form {
+          width: 100%; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line);
+          display: flex; flex-direction: column; gap: 12px;
+        }
+        .mybookings-review-form .mybookings-review-stars { display: flex; gap: 6px; }
+        .mybookings-review-form .rating-star {
+          background: none; border: none; cursor: pointer;
+          font-size: 26px; line-height: 1; color: var(--line);
+          transition: color .15s, transform .15s;
+        }
+        .mybookings-review-form .rating-star:hover { transform: scale(1.1); }
+        .mybookings-review-form .rating-star.is-filled { color: var(--gold); }
+        .mybookings-review-form textarea {
+          width: 100%; min-height: 70px; background: rgba(15,10,36,0.5);
+          border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+          color: var(--ink); font-family: 'Cormorant Garamond', serif; font-size: 15px; resize: vertical;
+        }
       `}</style>
+    </div>
+  );
+}
+
+// Reseña pública de una sesión ya tomada (idea #7 de la auditoría de
+// producto): reemplaza el "rating: 5.0" hardcodeado de las tarotistas por
+// reseñas reales, dejadas solo por quien reservó y pagó esa sesión
+// puntual, una vez que ya terminó. Ver "canReview"/"alreadyReviewed" en
+// la acción "my-bookings" y la acción "submit-review".
+function MyBookingItem({ b, lang, t, formatWhen, setRoute }) {
+  const es = lang === 'es';
+  const now = Date.now();
+  const from = b.videoJoinFrom ? new Date(b.videoJoinFrom).getTime() : null;
+  const until = b.videoJoinUntil ? new Date(b.videoJoinUntil).getTime() : null;
+  let status = 'ready';
+  if (from && now < from) status = 'early';
+  else if (until && now > until) status = 'done';
+
+  const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [rating, setRating] = React.useState(5);
+  const [comment, setComment] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [done, setDone] = React.useState(!!b.alreadyReviewed);
+  const [error, setError] = React.useState('');
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await window.arcanaSubmitReview({ bookingId: b.id, rating, comment: comment.trim() });
+      setDone(true);
+      setReviewOpen(false);
+    } catch (e) {
+      setError((e && e.message) || (es ? 'No se pudo enviar la reseña.' : "Couldn't send the review."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mybookings-item">
+      <div className="mybookings-item-main">
+        <div className="mybookings-item-name">{b.tarotistName}</div>
+        <div className="mybookings-item-when italic">{formatWhen(b.when)}</div>
+        <div className="mybookings-item-code">{b.accessCode}</div>
+      </div>
+      <div className="mybookings-item-action">
+        {status === 'ready' && (
+          <button
+            className="btn btn-primary"
+            onClick={() => setRoute && setRoute({ page: 'videocall', accessCode: b.accessCode })}
+          >
+            {t.mybookings_join} →
+          </button>
+        )}
+        {status === 'early' && (
+          <div className="italic mybookings-status">{t.mybookings_from} {formatWhen(b.videoJoinFrom)}</div>
+        )}
+        {status === 'done' && !done && !reviewOpen && (
+          <button className="btn btn-ghost" onClick={() => setReviewOpen(true)}>
+            ★ {es ? 'Dejar una reseña' : 'Leave a review'}
+          </button>
+        )}
+        {status === 'done' && done && (
+          <div className="italic mybookings-status">✓ {es ? '¡Gracias por tu reseña!' : 'Thanks for your review!'}</div>
+        )}
+      </div>
+      {status === 'done' && reviewOpen && !done && (
+        <div className="mybookings-review-form" onClick={(e) => e.stopPropagation()}>
+          <div className="mybookings-review-stars">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`rating-star${n <= rating ? ' is-filled' : ''}`}
+                onClick={() => setRating(n)}
+                aria-label={`${n} ${es ? 'estrellas' : 'stars'}`}
+              >★</button>
+            ))}
+          </div>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            maxLength={600}
+            placeholder={es ? 'Cómo fue tu sesión (opcional)...' : 'How was your session (optional)...'}
+          />
+          {error && <p className="italic" style={{ color: '#e08080', fontSize: 13 }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-primary" onClick={submit} disabled={busy}>
+              {busy ? (es ? 'Enviando…' : 'Sending…') : (es ? 'Enviar reseña' : 'Send review')}
+            </button>
+            <button className="profile-link-btn" onClick={() => setReviewOpen(false)}>{es ? 'Cancelar' : 'Cancel'}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

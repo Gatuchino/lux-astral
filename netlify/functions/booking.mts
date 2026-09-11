@@ -480,6 +480,7 @@ function seedStore() {
     readingTickets: {} as Record<string, any>,
     readingsByEmail: {} as Record<string, any[]>,
     readingsMigrated: {} as Record<string, boolean>,
+    reviewsByTarotist: {} as Record<string, any[]>,
     astralChartsByEmail: {} as Record<string, any[]>,
     feedback: { ratings: [] as any[], suggestions: [] as any[] },
     settings: {
@@ -517,6 +518,7 @@ async function loadStore() {
   if (!raw.readingTickets || typeof raw.readingTickets !== "object") raw.readingTickets = {};
   if (!raw.readingsByEmail || typeof raw.readingsByEmail !== "object") raw.readingsByEmail = {};
   if (!raw.readingsMigrated || typeof raw.readingsMigrated !== "object") raw.readingsMigrated = {};
+  if (!raw.reviewsByTarotist || typeof raw.reviewsByTarotist !== "object") raw.reviewsByTarotist = {};
   if (!raw.astralChartsByEmail || typeof raw.astralChartsByEmail !== "object") raw.astralChartsByEmail = {};
   if (!raw.feedback || typeof raw.feedback !== "object") raw.feedback = { ratings: [], suggestions: [] };
   if (!Array.isArray(raw.settings.powerUsers) || !raw.settings.powerUsers.length) {
@@ -561,11 +563,35 @@ function slotIsAvailable(slot: any) {
   if (slot.reservedUntil && new Date(slot.reservedUntil).getTime() > Date.now()) return false;
   return true;
 }
+// Idea #7 de la auditoría de producto (a pedido de Christian): "rating:
+// 5.0, readings: 0" venía hardcodeado en el seed y nunca se actualizaba
+// -- exactamente el hallazgo de la auditoría de marketing (confianza
+// falsa). Acá se calculan reviewCount/reviewAvg reales a partir de
+// reviewsByTarotist (reseñas dejadas de verdad, solo por quien reservó
+// esa sesión -- ver acción "submit-review") y completedSessions contando
+// reservas pagadas cuyo horario ya pasó, en vez de un contador manual
+// que nadie incrementa. tr.rating/tr.readings quedan intactos por si
+// algo más los usa, pero el frontend ahora prefiere estos.
 function publicTarotists(store: any) {
-  return store.tarotists.map((tr: any) => ({
-    ...tr,
-    availability: tr.availability.filter((s: any) => new Date(s.startsAt).getTime() > Date.now()),
-  }));
+  const now = Date.now();
+  return store.tarotists.map((tr: any) => {
+    const reviews = (store.reviewsByTarotist && store.reviewsByTarotist[tr.id]) || [];
+    const reviewCount = reviews.length;
+    const reviewAvg = reviewCount ? reviews.reduce((s: number, r: any) => s + r.rating, 0) / reviewCount : null;
+    const completedSessions = store.bookings.filter((b: any) => {
+      if (b.tarotistId !== tr.id || b.status !== "paid") return false;
+      const slot = tr.availability.find((s: any) => s.id === b.slotId);
+      if (!slot) return false;
+      return new Date(slot.startsAt).getTime() + (slot.durationMin || 45) * 60000 < now;
+    }).length;
+    return {
+      ...tr,
+      availability: tr.availability.filter((s: any) => new Date(s.startsAt).getTime() > now),
+      reviewCount,
+      reviewAvg,
+      completedSessions,
+    };
+  });
 }
 
 function paypalApiBase(): string {
@@ -1261,14 +1287,33 @@ export default async (req: Request) => {
           .map((b: any) => {
             const tr = store.tarotists.find((x: any) => x.id === b.tarotistId);
             const slot = tr && tr.availability.find((s: any) => s.id === b.slotId);
+            const alreadyReviewed = !!(tr && store.reviewsByTarotist[tr.id] && store.reviewsByTarotist[tr.id].some((r: any) => r.bookingId === b.id));
+            const endsAt = slot ? new Date(slot.startsAt).getTime() + (slot.durationMin || 45) * 60000 : 0;
             return {
               id: b.id, accessCode: b.accessCode, amount: b.amount,
-              tarotistName: tr ? tr.name : "", when: slot ? slot.startsAt : null,
+              tarotistId: tr ? tr.id : null, tarotistName: tr ? tr.name : "", when: slot ? slot.startsAt : null,
               durationMin: slot ? slot.durationMin : null,
               videoJoinFrom: b.videoJoinFrom || null, videoJoinUntil: b.videoJoinUntil || null,
+              // Reseña pública de la sesión (idea #7 de la auditoría de producto):
+              // solo se puede dejar una vez que la sesión terminó y una sola vez por reserva.
+              canReview: !alreadyReviewed && !!slot && Date.now() > endsAt,
+              alreadyReviewed,
             };
           });
         return json(200, { bookings: list });
+      }
+      if (action === "tarotist-reviews") {
+        const tarotistId = (url.searchParams.get("tarotistId") || "").trim();
+        const list = ((store.reviewsByTarotist && store.reviewsByTarotist[tarotistId]) || [])
+          .slice()
+          .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const count = list.length;
+        const avg = count ? list.reduce((s: number, r: any) => s + r.rating, 0) / count : null;
+        return json(200, {
+          count,
+          avg,
+          reviews: list.map((r: any) => ({ rating: r.rating, comment: r.comment, date: r.date, customerFirstName: r.customerFirstName })),
+        });
       }
       if (action === "admin-sessions") {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get("setupToken") || "" })) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
@@ -2171,6 +2216,50 @@ export default async (req: Request) => {
       store.readingsByEmail[email] = list.filter((r: any) => r.id !== id);
       await saveStore(store);
       return json(200, { ok: true });
+    }
+
+    // Reseña pública de una sesión en vivo ya tomada (idea #7 de la
+    // auditoría de producto) -- reemplaza el "rating: 5.0" hardcodeado
+    // por reseñas reales, una por reserva, solo de quien la pagó y solo
+    // después de que la sesión terminó (ver "canReview" en "my-bookings").
+    if (action === "submit-review") {
+      const email = requireUserAuth(store, payload);
+      if (!email) return json(401, { error: "Sesion vencida - inicia sesion de nuevo." });
+      const { bookingId, comment } = payload;
+      const ratingNum = Math.round(Number(payload.rating));
+      if (!bookingId || !Number.isFinite(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+        return json(400, { error: "Faltan datos válidos para la reseña (bookingId, rating de 1 a 5)." });
+      }
+      const booking = store.bookings.find((b: any) => b.id === bookingId);
+      if (!booking || booking.status !== "paid" || booking.customerEmail.toLowerCase() !== email.toLowerCase()) {
+        return json(404, { error: "No encontramos esa sesión reservada a tu nombre." });
+      }
+      const tr = store.tarotists.find((x: any) => x.id === booking.tarotistId);
+      if (!tr) return json(404, { error: "No encontramos a esa tarotista." });
+      const slot = tr.availability.find((s: any) => s.id === booking.slotId);
+      const endsAt = slot ? new Date(slot.startsAt).getTime() + (slot.durationMin || 45) * 60000 : 0;
+      if (!slot || Date.now() < endsAt) {
+        return json(400, { error: "Todavía no se puede reseñar: la sesión no terminó." });
+      }
+      if (!store.reviewsByTarotist[tr.id]) store.reviewsByTarotist[tr.id] = [];
+      if (store.reviewsByTarotist[tr.id].some((r: any) => r.bookingId === bookingId)) {
+        return json(409, { error: "Ya dejaste una reseña para esta sesión." });
+      }
+      const user = findUserByEmail(store, email);
+      const rawName = (booking.customerName || (user && user.name) || "").trim();
+      const firstName = rawName.split(/\s+/)[0] || "—";
+      const review = {
+        id: genId("rev"),
+        bookingId,
+        tarotistId: tr.id,
+        rating: ratingNum,
+        comment: (comment || "").toString().slice(0, 600).trim(),
+        customerFirstName: firstName,
+        date: new Date().toISOString(),
+      };
+      store.reviewsByTarotist[tr.id].push(review);
+      await saveStore(store);
+      return json(200, { review });
     }
 
     if (action === "import-readings") {
