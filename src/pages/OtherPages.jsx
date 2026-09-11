@@ -4889,6 +4889,30 @@ const SESSION_EXTRA_STYLES = `
     color: var(--gold);
     background: rgba(212, 168, 90, 0.08);
   }
+  .live-slot-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .live-slot-chile {
+    font-family: 'Cormorant Garamond', serif;
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 11px;
+    opacity: 0.6;
+  }
+  .checkout-tz-hint {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 14px;
+  }
+  .checkout-tz-note {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-weight: 400;
+  }
 
   .session-paying {
     text-align: center;
@@ -5127,11 +5151,36 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
 
   const formatSlot = (iso) => {
     try {
+      // Sin "timeZone" explícito, toLocaleString ya usa el huso horario
+      // local del navegador de quien está mirando -- esto YA convertía
+      // bien, solo no lo decíamos en ningún lado (ver viewerTzLabel/
+      // formatSlotChile más abajo, que lo hacen explícito).
       return new Date(iso).toLocaleString(es ? 'es-CL' : 'en-US', {
         weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
       });
     } catch { return iso; }
   };
+  const formatSlotChile = (iso) => {
+    try {
+      return new Date(iso).toLocaleString(es ? 'es-CL' : 'en-US', {
+        timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return iso; }
+  };
+  // Huso horario real de quien reserva (no asumimos Chile) -- si es
+  // distinto al de la tarotista, mostramos ambas horas para que quede
+  // clarísimo y no haya sorpresas al momento de la sesión.
+  const viewerTz = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+  })();
+  const viewerIsChile = viewerTz === 'America/Santiago';
+  const viewerTzShort = (() => {
+    try {
+      return new Intl.DateTimeFormat(es ? 'es-CL' : 'en-US', { timeZoneName: 'shortOffset' })
+        .formatToParts(new Date())
+        .find((p) => p.type === 'timeZoneName').value;
+    } catch (e) { return viewerTz; }
+  })();
 
   if (!tarotistId) return null;
 
@@ -5221,6 +5270,13 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
                 </ul>
 
                 <div className="eyebrow" style={{ marginTop: 8, marginBottom: 10 }}>{t.market_book_choose_slot}</div>
+                {!viewerIsChile && viewerTz && (
+                  <p className="italic checkout-tz-hint">
+                    🌐 {es
+                      ? `Estos horarios ya están en tu huso horario (${viewerTzShort}). Al lado de cada uno vas a ver la hora en Chile, donde está la tarotista.`
+                      : `These times are already in your timezone (${viewerTzShort}). Next to each one you'll see the time in Chile, where the reader is.`}
+                  </p>
+                )}
                 {(!tarotist.availability || tarotist.availability.length === 0) ? (
                   <div className="live-pay-note italic">{t.market_book_no_slots}</div>
                 ) : (
@@ -5230,7 +5286,12 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
                         key={s.id}
                         className={`live-slot-btn ${slotId === s.id ? 'is-active' : ''}`}
                         onClick={() => setSlotId(s.id)}
-                      >{formatSlot(s.startsAt)}</button>
+                      >
+                        {formatSlot(s.startsAt)}
+                        {!viewerIsChile && (
+                          <span className="live-slot-chile">{formatSlotChile(s.startsAt)} {es ? 'Chile' : 'Chile time'}</span>
+                        )}
+                      </button>
                     ))}
                   </div>
                 )}
@@ -5258,7 +5319,15 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
 
                 <div className="checkout-summary">
                   <div><span>{es ? 'Tarotista' : 'Reader'}</span><strong>{tarotist.name}</strong></div>
-                  <div><span>{es ? 'Horario' : 'Time'}</span><strong>{chosenSlot ? formatSlot(chosenSlot.startsAt) : '—'}</strong></div>
+                  <div>
+                    <span>{es ? 'Horario' : 'Time'}</span>
+                    <strong>
+                      {chosenSlot ? formatSlot(chosenSlot.startsAt) : '—'}
+                      {chosenSlot && !viewerIsChile && (
+                        <span className="checkout-tz-note italic"> ({formatSlotChile(chosenSlot.startsAt)} {es ? 'hora de Chile' : 'Chile time'})</span>
+                      )}
+                    </strong>
+                  </div>
                   <div><span>{es ? 'Duración' : 'Duration'}</span><strong>45 min</strong></div>
                   <div><span>{t.market_book_email}</span><strong>{profile.email || '—'}</strong></div>
                   <div><span>{es ? 'Total' : 'Total'}</span><strong>{t.pricing_currency}{displayPrice} USD</strong></div>
