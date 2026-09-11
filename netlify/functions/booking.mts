@@ -400,6 +400,142 @@ function buildReports(store: any) {
   return { users, movements, adminActions, totalEvents: events.length };
 }
 
+// ---------- Estadísticas del sitio (a pedido de Christian, 2026-09-11) ----------
+// Registro liviano y SEPARADO del eventLog de "Informes" (arriba) -- el
+// mismo log-event dispara ambos, pero este vive en su propio array para
+// no competir por espacio con el tope de 5000 eventos de eventLog (acá
+// entran heartbeats cada ~45s mientras la pestaña está visible, ademas
+// de cada cambio de pagina, asi que el volumen es mucho mayor). Tampoco
+// guarda nada del contenido de una lectura, solo pagina/pais/segmento.
+const ANALYTICS_LOG_MAX_DAYS = 45;
+const ANALYTICS_LOG_MAX_ENTRIES = 8000;
+const ONLINE_WINDOW_MS = 90 * 1000; // sin señal en los últimos 90s = ya no está "en línea"
+const SITE_STATS_PERIOD_DAYS: Record<string, number> = { day: 1, week: 7, month: 30 };
+
+// "registered" = tiene cuenta pero no es socia de pago activa en este
+// momento (plan Vela/gratis). "visitor" = sin sesión, no sabemos quién es.
+function classifySegment(store: any, email: string): string {
+  if (!email) return "visitor";
+  const sub = store.subscribers.find((s: any) => s.email === email);
+  if (sub && sub.status === "ACTIVE" && ["luna", "estrella", "oraculo"].includes(sub.planKey)) {
+    return sub.planKey;
+  }
+  return "registered";
+}
+
+function pruneAnalyticsLog(store: any) {
+  if (!Array.isArray(store.analyticsLog)) store.analyticsLog = [];
+  const cutoff = Date.now() - ANALYTICS_LOG_MAX_DAYS * 24 * 60 * 60 * 1000;
+  store.analyticsLog = store.analyticsLog.filter((e: any) => e.ts >= cutoff);
+  if (store.analyticsLog.length > ANALYTICS_LOG_MAX_ENTRIES) {
+    store.analyticsLog = store.analyticsLog.slice(store.analyticsLog.length - ANALYTICS_LOG_MAX_ENTRIES);
+  }
+}
+
+function logAnalyticsEvent(store: any, entry: { email: string; visitorId: string; page: string; countryCode: string; countryName: string }) {
+  store.analyticsLog.push({
+    ts: Date.now(),
+    email: entry.email || "",
+    visitorId: (entry.visitorId || "").slice(0, 40),
+    page: (entry.page || "").slice(0, 60),
+    segment: classifySegment(store, entry.email),
+    countryCode: entry.countryCode || "",
+    countryName: entry.countryName || "",
+  });
+  pruneAnalyticsLog(store);
+}
+
+// Arma las estadísticas del sitio para el panel de Setup: quién está en
+// línea ahora mismo, y totales del período elegido (día/semana/mes) --
+// visitas, visitantes únicos, por segmento, secciones más vistas, países,
+// y minutos promedio por sesión (misma fórmula de "hueco de 30 min" que
+// ya usa buildReports, aplicada acá a TODOS los visitantes, no solo a
+// quienes tienen cuenta).
+function buildSiteStats(store: any, period: string) {
+  const log = Array.isArray(store.analyticsLog) ? store.analyticsLog : [];
+  const now = Date.now();
+
+  const onlineCutoff = now - ONLINE_WINDOW_MS;
+  const onlineBySegment: Record<string, number> = {};
+  const onlineSeen = new Set<string>();
+  for (const e of log) {
+    if (e.ts < onlineCutoff) continue;
+    const key = e.email || e.visitorId || "anon";
+    if (onlineSeen.has(key)) continue;
+    onlineSeen.add(key);
+    const seg = e.segment || "visitor";
+    onlineBySegment[seg] = (onlineBySegment[seg] || 0) + 1;
+  }
+
+  const days = SITE_STATS_PERIOD_DAYS[period] || 1;
+  const since = now - days * 24 * 60 * 60 * 1000;
+  const rangeEvents = log.filter((e: any) => e.ts >= since);
+
+  const byKey: Record<string, any[]> = {};
+  rangeEvents.forEach((e: any) => {
+    const key = e.email || e.visitorId || "anon";
+    if (!byKey[key]) byKey[key] = [];
+    byKey[key].push(e);
+  });
+
+  const bySegment: Record<string, number> = {};
+  const byPath: Record<string, number> = {};
+  const byCountry: Record<string, { name: string; count: number }> = {};
+  const SESSION_GAP_MS = 30 * 60 * 1000;
+  let totalSessionMs = 0;
+  let totalSessions = 0;
+
+  Object.keys(byKey).forEach((key) => {
+    const evs = byKey[key].slice().sort((a: any, b: any) => a.ts - b.ts);
+    const lastSeg = evs[evs.length - 1].segment || "visitor";
+    bySegment[lastSeg] = (bySegment[lastSeg] || 0) + 1;
+    let sessionStart: number | null = null;
+    let lastTs = 0;
+    evs.forEach((e: any) => {
+      if (e.page) byPath[e.page] = (byPath[e.page] || 0) + 1;
+      if (e.countryCode) {
+        if (!byCountry[e.countryCode]) byCountry[e.countryCode] = { name: e.countryName || e.countryCode, count: 0 };
+        byCountry[e.countryCode].count += 1;
+      }
+      if (sessionStart === null || e.ts - lastTs > SESSION_GAP_MS) {
+        if (sessionStart !== null) {
+          totalSessionMs += Math.min(lastTs - sessionStart, SESSION_GAP_MS);
+          totalSessions += 1;
+        }
+        sessionStart = e.ts;
+      }
+      lastTs = e.ts;
+    });
+    if (sessionStart !== null) {
+      totalSessionMs += Math.min(lastTs - sessionStart, SESSION_GAP_MS);
+      totalSessions += 1;
+    }
+  });
+
+  const topPaths = Object.entries(byPath)
+    .sort((a: any, b: any) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([page, count]) => ({ page, count }));
+  const topCountries = Object.entries(byCountry)
+    .sort((a: any, b: any) => b[1].count - a[1].count)
+    .slice(0, 20)
+    .map(([code, v]: [string, any]) => ({ code, name: v.name, count: v.count }));
+
+  return {
+    period,
+    generatedAt: now,
+    online: { total: onlineSeen.size, bySegment: onlineBySegment },
+    pageviews: rangeEvents.length,
+    uniqueVisitors: Object.keys(byKey).length,
+    bySegment,
+    topPaths,
+    topCountries,
+    avgSessionMinutes: totalSessions ? Math.round((totalSessionMs / totalSessions / 60000) * 10) / 10 : 0,
+    retentionDays: ANALYTICS_LOG_MAX_DAYS,
+    logSize: log.length,
+  };
+}
+
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -503,6 +639,7 @@ function seedStore() {
     },
     setupSessions: {} as Record<string, any>,
     eventLog: [] as any[],
+    analyticsLog: [] as any[], // ver buildSiteStats -- estadisticas del sitio (idea de Christian, 2026-09-11)
     users: [] as any[],
     userSessions: {} as Record<string, any>,
     pendingSignups: {} as Record<string, any>,
@@ -543,6 +680,7 @@ async function loadStore() {
   }
   if (!raw.setupSessions || typeof raw.setupSessions !== "object") raw.setupSessions = {};
   if (!Array.isArray(raw.eventLog)) raw.eventLog = [];
+  if (!Array.isArray(raw.analyticsLog)) raw.analyticsLog = [];
   if (!Array.isArray(raw.users)) raw.users = [];
   if (!raw.userSessions || typeof raw.userSessions !== "object") raw.userSessions = {};
   if (!raw.pendingSignups || typeof raw.pendingSignups !== "object") raw.pendingSignups = {};
@@ -1730,7 +1868,7 @@ function json(status: number, obj: any) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
 }
 
-export default async (req: Request) => {
+export default async (req: Request, context: any) => {
   const url = new URL(req.url);
 
   try {
@@ -1888,6 +2026,13 @@ export default async (req: Request) => {
           return json(401, { error: "Contraseña de administración incorrecta o faltante." });
         }
         return json(200, buildReports(store));
+      }
+      if (action === "site-stats") {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get("setupToken") || "" })) {
+          return json(401, { error: "Contraseña de administración incorrecta o faltante." });
+        }
+        const period = url.searchParams.get("period") || "day";
+        return json(200, buildSiteStats(store, ["day", "week", "month"].includes(period) ? period : "day"));
       }
       if (action === "get-ai-usage-summary") {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get("setupToken") || "" })) {
@@ -3298,6 +3443,21 @@ export default async (req: Request) => {
       const page = String(payload.page || "").slice(0, 60);
       if (page) {
         logEvent(store, { email, type: "page-visit", detail: { page } });
+        // Estadísticas del sitio (idea de Christian, 2026-09-11): mismo
+        // disparador, log separado -- ver buildSiteStats. El país viene
+        // de la geolocalización que Netlify ya agrega a cada request
+        // (gratis, sin llamar a un servicio externo); en local-server.js
+        // no hay equivalente, así que ahí queda vacío.
+        const geo = (context && context.geo) || {};
+        const countryCode = geo.country && geo.country.code ? String(geo.country.code).slice(0, 8) : "";
+        const countryName = geo.country && geo.country.name ? String(geo.country.name).slice(0, 60) : "";
+        logAnalyticsEvent(store, {
+          email,
+          visitorId: String(payload.visitorId || ""),
+          page,
+          countryCode,
+          countryName,
+        });
         await saveStore(store);
       }
       return json(200, { ok: true });

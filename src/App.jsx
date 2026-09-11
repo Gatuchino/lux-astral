@@ -165,6 +165,20 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.page]);
 
+  // "Latido" cada 45s mientras la pestaña está visible: mismo registro de
+  // arriba, pero repetido en el tiempo -- es lo que le permite a
+  // Estadísticas del sitio (Setup) saber quién está en línea ahora mismo
+  // y aproximar cuánto tiempo se quedó cada quien en cada sección. Se
+  // detiene solo si la pestaña queda en segundo plano, para no inflar el
+  // tiempo con pestañas abiertas y olvidadas.
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') window.arcanaLogEvent(route.page).catch(() => {});
+    }, 45000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.page]);
+
   // Historial de lecturas + Cofre de Respuestas (2026-09-08, auditoría):
   // antes vivían solo en localStorage — se perdían al cambiar de
   // dispositivo pese a ser un beneficio pago, y sin ningún filtro por

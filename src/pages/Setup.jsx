@@ -8,6 +8,37 @@
 // acciones setup-change-password / setup-add-power-user /
 // setup-remove-power-user, que solo funcionan ya logueado.
 // Etiquetas del panel de Informes para cada tipo de movimiento registrado.
+// Nombres legibles para las secciones más visitadas del panel de
+// Estadísticas del sitio (id de ruta -> nombre) -- las que no están acá
+// se muestran con su id tal cual, sigue siendo entendible.
+const SITE_PAGE_LABELS = {
+  home: { es: 'Inicio', en: 'Home' },
+  readings: { es: 'Elegir tirada', en: 'Choose a spread' },
+  reading: { es: 'Lectura de tarot', en: 'Tarot reading' },
+  quickcard: { es: 'Carta rápida', en: 'Quick card' },
+  marketplace: { es: 'Marketplace', en: 'Marketplace' },
+  about: { es: 'Sobre nosotros', en: 'About us' },
+  philosophy: { es: 'Filosofía', en: 'Philosophy' },
+  blog: { es: 'Blog', en: 'Blog' },
+  blogpost: { es: 'Nota del blog', en: 'Blog post' },
+  library: { es: 'Biblioteca', en: 'Library' },
+  pricing: { es: 'Precios', en: 'Pricing' },
+  contact: { es: 'Contacto', en: 'Contact' },
+  dashboard: { es: 'Mi panel', en: 'My dashboard' },
+  profile: { es: 'Mi perfil', en: 'My profile' },
+  gift: { es: 'Regalar', en: 'Gift' },
+  plancheckout: { es: 'Pago de plan', en: 'Plan checkout' },
+  sessioncheckout: { es: 'Pago de sesión', en: 'Session checkout' },
+  welcome: { es: 'Bienvenida', en: 'Welcome' },
+  setup: { es: 'Setup (admin)', en: 'Setup (admin)' },
+};
+const SEGMENT_LABELS = {
+  oraculo: { es: 'Oráculo', en: 'Oráculo' },
+  estrella: { es: 'Estrella', en: 'Estrella' },
+  luna: { es: 'Luna', en: 'Luna' },
+  registered: { es: 'Registradas (Vela)', en: 'Registered (Vela)' },
+  visitor: { es: 'Visitantes', en: 'Visitors' },
+};
 const MOVEMENT_TYPE_LABELS = {
   income: { es: 'Ingreso', en: 'Income' },
   'membership-granted': { es: 'Membresía otorgada', en: 'Membership granted' },
@@ -72,6 +103,7 @@ const SETUP_CATEGORIES = [
 const SETUP_SEARCH_INDEX = [
   { id: 'pwd', categoryId: 'cuenta', title_es: 'Cambiar contraseña del panel', title_en: 'Change panel password' },
   { id: 'accounts', categoryId: 'cuenta', title_es: 'Cuentas y accesos', title_en: 'Accounts & access' },
+  { id: 'sitestats', categoryId: 'negocio', title_es: 'Estadísticas del sitio', title_en: 'Site statistics' },
   { id: 'informes', categoryId: 'negocio', title_es: 'Informes', title_en: 'Reports' },
   { id: 'room', categoryId: 'video', title_es: 'Salón de chat y videoconferencia', title_en: 'Chat room & video conference' },
   { id: 'readers', categoryId: 'video', title_es: 'Tarotistas', title_en: 'Readers' },
@@ -206,6 +238,31 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       .finally(() => setReportsLoading(false));
   };
   React.useEffect(() => { if (session) loadReports(); }, [session]);
+
+  // ---------- Estadísticas del sitio: en línea ahora, tráfico por
+  // período, secciones, países (a pedido de Christian, 2026-09-11) ----------
+  const [siteStats, setSiteStats] = React.useState(null);
+  const [siteStatsLoading, setSiteStatsLoading] = React.useState(false);
+  const [siteStatsError, setSiteStatsError] = React.useState('');
+  const [siteStatsPeriod, setSiteStatsPeriod] = React.useState('day');
+  const loadSiteStats = (period) => {
+    if (!session) return;
+    setSiteStatsLoading(true);
+    setSiteStatsError('');
+    window.arcanaGetSiteStats(period || siteStatsPeriod)
+      .then((res) => setSiteStats(res))
+      .catch((e) => setSiteStatsError((e && e.message) || (es ? 'No se pudieron cargar las estadísticas.' : "Couldn't load statistics.")))
+      .finally(() => setSiteStatsLoading(false));
+  };
+  React.useEffect(() => { if (session) loadSiteStats(siteStatsPeriod); }, [session, siteStatsPeriod]);
+  // "En línea ahora" se refresca solo cada 20s mientras esta sección está
+  // montada (el resto de los números del período no cambian tan seguido).
+  React.useEffect(() => {
+    if (!session) return;
+    const id = setInterval(() => loadSiteStats(siteStatsPeriod), 20000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, siteStatsPeriod]);
 
   // ---------- Uso de IA y costos ----------
   const [aiUsage, setAiUsage] = React.useState(null);
@@ -438,6 +495,60 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       {
         heading: es ? 'Estilo visual activo (este navegador)' : 'Active visual style (this browser)',
         note: `${es ? 'Lectura' : 'Reading'}: ${variants?.library || '—'} · Chat: ${variants?.chat || '—'} · ${es ? 'Videollamada' : 'Video call'}: ${variants?.videocall || '—'}`,
+      },
+    ]);
+  };
+
+  const segLabel = (es, seg) => (SEGMENT_LABELS[seg] && SEGMENT_LABELS[seg][es ? 'es' : 'en']) || seg;
+  const pageLabel = (es, page) => (SITE_PAGE_LABELS[page] && SITE_PAGE_LABELS[page][es ? 'es' : 'en']) || page;
+  const exportSiteStatsCsv = () => {
+    if (!siteStats) return;
+    const periodLabel = { day: es ? 'Día' : 'Day', week: es ? 'Semana' : 'Week', month: es ? 'Mes' : 'Month' }[siteStats.period] || siteStats.period;
+    const rows = [
+      [es ? 'Estadísticas del sitio' : 'Site statistics', `${es ? 'Período' : 'Period'}: ${periodLabel}`],
+      [es ? 'En línea ahora' : 'Online now', siteStats.online.total],
+      ...Object.entries(siteStats.online.bySegment || {}).map(([seg, n]) => [`  ${segLabel(es, seg)}`, n]),
+      [],
+      [es ? 'Visitas (pageviews)' : 'Pageviews', siteStats.pageviews],
+      [es ? 'Visitantes únicos' : 'Unique visitors', siteStats.uniqueVisitors],
+      [es ? 'Minutos promedio por sesión' : 'Average minutes per session', siteStats.avgSessionMinutes],
+      [],
+      [es ? 'Por segmento' : 'By segment', es ? 'Personas' : 'People'],
+      ...Object.entries(siteStats.bySegment || {}).map(([seg, n]) => [segLabel(es, seg), n]),
+      [],
+      [es ? 'Secciones más visitadas' : 'Top sections', es ? 'Visitas' : 'Views'],
+      ...(siteStats.topPaths || []).map((p) => [pageLabel(es, p.page), p.count]),
+      [],
+      [es ? 'Países' : 'Countries', es ? 'Visitas' : 'Views'],
+      ...(siteStats.topCountries || []).map((c) => [c.name || c.code, c.count]),
+    ];
+    exportSetupCsv('lux-astral-estadisticas-sitio.csv', rows);
+  };
+  const exportSiteStatsPdf = () => {
+    if (!siteStats) return;
+    const periodLabel = { day: es ? 'Día' : 'Day', week: es ? 'Semana' : 'Week', month: es ? 'Mes' : 'Month' }[siteStats.period] || siteStats.period;
+    exportSetupPdf(es ? 'Estadísticas del sitio' : 'Site statistics', [
+      {
+        heading: es ? `Período: ${periodLabel}` : `Period: ${periodLabel}`,
+        note: `${es ? 'En línea ahora' : 'Online now'}: ${siteStats.online.total} · ${es ? 'Visitas' : 'Pageviews'}: ${siteStats.pageviews} · ${es ? 'Visitantes únicos' : 'Unique visitors'}: ${siteStats.uniqueVisitors} · ${es ? 'Prom. min/sesión' : 'Avg min/session'}: ${siteStats.avgSessionMinutes}`,
+      },
+      {
+        heading: es ? 'Por segmento' : 'By segment',
+        headers: [es ? 'Segmento' : 'Segment', es ? 'Personas' : 'People'],
+        colWidths: [340, 100],
+        rows: Object.entries(siteStats.bySegment || {}).map(([seg, n]) => [segLabel(es, seg), n]),
+      },
+      {
+        heading: es ? 'Secciones más visitadas' : 'Top sections',
+        headers: [es ? 'Sección' : 'Section', es ? 'Visitas' : 'Views'],
+        colWidths: [340, 100],
+        rows: (siteStats.topPaths || []).map((p) => [pageLabel(es, p.page), p.count]),
+      },
+      {
+        heading: es ? 'Países' : 'Countries',
+        headers: [es ? 'País' : 'Country', es ? 'Visitas' : 'Views'],
+        colWidths: [340, 100],
+        rows: (siteStats.topCountries || []).map((c) => [c.name || c.code, c.count]),
       },
     ]);
   };
@@ -1305,6 +1416,140 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
             ))}
           </ul>
         )}
+      </SetupSection>
+      </div>
+      )}
+
+      {activeCategory === 'negocio' && (
+      <div id="setup-sec-sitestats">
+      {/* ---------- Estadísticas del sitio: en línea ahora, tráfico,
+          secciones, países (a pedido de Christian, 2026-09-11) ---------- */}
+      <SetupSection
+        title={es ? 'Estadísticas del sitio' : 'Site statistics'}
+        desc={es
+          ? 'Quién está en línea ahora mismo (registradas, socias por plan, y visitantes sin cuenta), y el tráfico del sitio por día/semana/mes: visitas, secciones más vistas, países, y tiempo promedio en la plataforma. Se calcula sobre los últimos 45 días de actividad.'
+          : "Who's online right now (registered, subscribers by plan, and visitors without an account), and site traffic by day/week/month: pageviews, top sections, countries, and average time on the platform. Calculated over the last 45 days of activity."}
+      >
+        <div className="setup-row" style={{ marginBottom: 16 }}>
+          <button className="btn btn-ghost" onClick={() => loadSiteStats(siteStatsPeriod)} disabled={siteStatsLoading}>
+            {siteStatsLoading ? (es ? 'Actualizando…' : 'Refreshing…') : (es ? 'Actualizar' : 'Refresh')}
+          </button>
+          {siteStats && (
+            <span className="italic" style={{ fontSize: 12, opacity: .6, alignSelf: 'center' }}>
+              {es
+                ? `Se guardan los últimos ${siteStats.retentionDays} días (${siteStats.logSize} eventos)`
+                : `Keeping the last ${siteStats.retentionDays} days (${siteStats.logSize} events)`}
+            </span>
+          )}
+        </div>
+        {siteStatsError && <p className="setup-gate-error">{siteStatsError}</p>}
+
+        <div className="sitestats-online">
+          <div className="sitestats-online-total">{siteStats ? siteStats.online.total : '—'}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, opacity: .8, marginBottom: 6 }}>{es ? 'personas en línea ahora' : 'people online now'}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {siteStats && Object.entries(siteStats.online.bySegment || {}).length > 0 ? (
+                Object.entries(siteStats.online.bySegment).map(([seg, n]) => (
+                  <span key={seg} className="sitestats-pill">{segLabel(es, seg)}: {n}</span>
+                ))
+              ) : (
+                <span className="italic" style={{ fontSize: 12, opacity: .55 }}>{es ? 'Nadie en línea ahora mismo.' : 'No one online right now.'}</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="sitestats-period-toggle" role="tablist" aria-label="período">
+          {[['day', es ? 'Hoy' : 'Today'], ['week', es ? 'Esta semana' : 'This week'], ['month', es ? 'Este mes' : 'This month']].map(([key, label]) => (
+            <button
+              key={key}
+              className={`sitestats-period-opt ${siteStatsPeriod === key ? 'is-active' : ''}`}
+              onClick={() => setSiteStatsPeriod(key)}
+              role="tab"
+              aria-selected={siteStatsPeriod === key}
+            >{label}</button>
+          ))}
+        </div>
+
+        <div className="sitestats-cards">
+          <div className="sitestats-card">
+            <div className="sitestats-card-value">{siteStats ? siteStats.pageviews.toLocaleString(es ? 'es-CL' : 'en-US') : '—'}</div>
+            <div className="sitestats-card-label">{es ? 'Visitas (páginas vistas)' : 'Pageviews'}</div>
+          </div>
+          <div className="sitestats-card">
+            <div className="sitestats-card-value">{siteStats ? siteStats.uniqueVisitors.toLocaleString(es ? 'es-CL' : 'en-US') : '—'}</div>
+            <div className="sitestats-card-label">{es ? 'Visitantes únicos' : 'Unique visitors'}</div>
+          </div>
+          <div className="sitestats-card">
+            <div className="sitestats-card-value">{siteStats ? `${siteStats.avgSessionMinutes} min` : '—'}</div>
+            <div className="sitestats-card-label">{es ? 'Promedio por sesión' : 'Average per session'}</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 18 }}>
+          <div style={{ flex: '1 1 260px' }}>
+            <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Por tipo de visitante' : 'By visitor type'}</h4>
+            {!siteStats || Object.keys(siteStats.bySegment || {}).length === 0 ? (
+              <p className="setup-empty italic" style={{ fontSize: 12.5 }}>{es ? 'Sin datos todavía.' : 'No data yet.'}</p>
+            ) : (
+              <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+                <tbody>
+                  {Object.entries(siteStats.bySegment).sort((a, b) => b[1] - a[1]).map(([seg, n]) => (
+                    <tr key={seg} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                      <td style={{ padding: '4px 6px' }}>{segLabel(es, seg)}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{n}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div style={{ flex: '1 1 260px' }}>
+            <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Secciones más visitadas' : 'Top sections'}</h4>
+            {!siteStats || (siteStats.topPaths || []).length === 0 ? (
+              <p className="setup-empty italic" style={{ fontSize: 12.5 }}>{es ? 'Sin datos todavía.' : 'No data yet.'}</p>
+            ) : (
+              <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+                <tbody>
+                  {siteStats.topPaths.slice(0, 10).map((p) => (
+                    <tr key={p.page} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                      <td style={{ padding: '4px 6px' }}>{pageLabel(es, p.page)}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{p.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div style={{ flex: '1 1 260px' }}>
+            <h4 style={{ fontSize: 13, margin: '4px 0 8px', opacity: .8 }}>{es ? 'Países' : 'Countries'}</h4>
+            {!siteStats || (siteStats.topCountries || []).length === 0 ? (
+              <p className="setup-empty italic" style={{ fontSize: 12.5 }}>
+                {es ? 'Sin datos todavía (solo disponible en el sitio publicado, no en local).' : 'No data yet (only available on the live site, not locally).'}
+              </p>
+            ) : (
+              <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+                <tbody>
+                  {siteStats.topCountries.slice(0, 10).map((cy) => (
+                    <tr key={cy.code} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                      <td style={{ padding: '4px 6px' }}>{cy.name || cy.code}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{cy.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        <div className="setup-report-row" style={{ marginTop: 20, marginBottom: 0 }}>
+          <span className="setup-report-label">{es ? '📄 Generar reporte:' : '📄 Generate report:'}</span>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportSiteStatsPdf} disabled={!siteStats}>PDF</button>
+          <button className="btn btn-ghost setup-report-btn" onClick={exportSiteStatsCsv} disabled={!siteStats}>Excel (CSV)</button>
+        </div>
       </SetupSection>
       </div>
       )}
@@ -2640,6 +2885,35 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
         .setup-report-label { font-size: 13px; color: var(--ink-soft); }
         .setup-report-btn { padding: 7px 14px; font-size: 12.5px; }
         .setup-report-hint { font-size: 12.5px; color: var(--ink-mute); }
+
+        .sitestats-online {
+          display: flex; align-items: center; gap: 18px; margin-bottom: 18px;
+          padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px;
+          background: rgba(212, 168, 90, 0.06);
+        }
+        .sitestats-online-total {
+          font-family: 'Cinzel', serif; font-size: 34px; color: var(--gold); line-height: 1; min-width: 56px; text-align: center;
+        }
+        .sitestats-pill {
+          font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
+          border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--ink-soft);
+        }
+        .sitestats-period-toggle {
+          display: inline-flex; gap: 4px; padding: 4px; border-radius: 10px;
+          background: rgba(255,255,255,.03); border: 1px solid var(--line); margin-bottom: 18px;
+        }
+        .sitestats-period-opt {
+          padding: 6px 14px; font-size: 12.5px; border-radius: 7px; border: none;
+          background: transparent; color: var(--ink-soft); cursor: pointer;
+        }
+        .sitestats-period-opt.is-active { background: var(--gold); color: #201a10; font-weight: 600; }
+        .sitestats-cards { display: flex; gap: 14px; flex-wrap: wrap; }
+        .sitestats-card {
+          flex: 1 1 160px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px;
+          background: rgba(255,255,255,.02);
+        }
+        .sitestats-card-value { font-family: 'Cinzel', serif; font-size: 22px; color: var(--ink); }
+        .sitestats-card-label { font-size: 11.5px; color: var(--ink-mute); margin-top: 2px; }
         .setup-planprice-grid { display: flex; flex-direction: column; gap: 12px; }
         .setup-planprice-row {
           display: flex; align-items: center; gap: 14px; flex-wrap: wrap;

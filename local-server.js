@@ -752,6 +752,132 @@ function buildReports(store) {
     .slice().sort((a, b) => b.ts - a.ts).slice(0, 200);
   return { users, movements, adminActions, totalEvents: events.length };
 }
+// ---------- Estadísticas del sitio (a pedido de Christian, 2026-09-11) ----------
+// Ver el comentario completo en netlify/functions/booking.mts -- misma
+// lógica acá. Única diferencia real: acá no hay geolocalización (eso
+// depende de la infraestructura de Netlify), así que en local siempre
+// queda "país desconocido"; en el sitio publicado sí funciona.
+const ANALYTICS_LOG_MAX_DAYS = 45;
+const ANALYTICS_LOG_MAX_ENTRIES = 8000;
+const ONLINE_WINDOW_MS = 90 * 1000;
+const SITE_STATS_PERIOD_DAYS = { day: 1, week: 7, month: 30 };
+
+function classifySegment(store, email) {
+  if (!email) return 'visitor';
+  const sub = store.subscribers.find((s) => s.email === email);
+  if (sub && sub.status === 'ACTIVE' && ['luna', 'estrella', 'oraculo'].includes(sub.planKey)) {
+    return sub.planKey;
+  }
+  return 'registered';
+}
+
+function pruneAnalyticsLog(store) {
+  if (!Array.isArray(store.analyticsLog)) store.analyticsLog = [];
+  const cutoff = Date.now() - ANALYTICS_LOG_MAX_DAYS * 24 * 60 * 60 * 1000;
+  store.analyticsLog = store.analyticsLog.filter((e) => e.ts >= cutoff);
+  if (store.analyticsLog.length > ANALYTICS_LOG_MAX_ENTRIES) {
+    store.analyticsLog = store.analyticsLog.slice(store.analyticsLog.length - ANALYTICS_LOG_MAX_ENTRIES);
+  }
+}
+
+function logAnalyticsEvent(store, entry) {
+  store.analyticsLog.push({
+    ts: Date.now(),
+    email: entry.email || '',
+    visitorId: (entry.visitorId || '').slice(0, 40),
+    page: (entry.page || '').slice(0, 60),
+    segment: classifySegment(store, entry.email),
+    countryCode: entry.countryCode || '',
+    countryName: entry.countryName || '',
+  });
+  pruneAnalyticsLog(store);
+}
+
+function buildSiteStats(store, period) {
+  const log = Array.isArray(store.analyticsLog) ? store.analyticsLog : [];
+  const now = Date.now();
+
+  const onlineCutoff = now - ONLINE_WINDOW_MS;
+  const onlineBySegment = {};
+  const onlineSeen = new Set();
+  for (const e of log) {
+    if (e.ts < onlineCutoff) continue;
+    const key = e.email || e.visitorId || 'anon';
+    if (onlineSeen.has(key)) continue;
+    onlineSeen.add(key);
+    const seg = e.segment || 'visitor';
+    onlineBySegment[seg] = (onlineBySegment[seg] || 0) + 1;
+  }
+
+  const days = SITE_STATS_PERIOD_DAYS[period] || 1;
+  const since = now - days * 24 * 60 * 60 * 1000;
+  const rangeEvents = log.filter((e) => e.ts >= since);
+
+  const byKey = {};
+  rangeEvents.forEach((e) => {
+    const key = e.email || e.visitorId || 'anon';
+    if (!byKey[key]) byKey[key] = [];
+    byKey[key].push(e);
+  });
+
+  const bySegment = {};
+  const byPath = {};
+  const byCountry = {};
+  const SESSION_GAP_MS = 30 * 60 * 1000;
+  let totalSessionMs = 0;
+  let totalSessions = 0;
+
+  Object.keys(byKey).forEach((key) => {
+    const evs = byKey[key].slice().sort((a, b) => a.ts - b.ts);
+    const lastSeg = evs[evs.length - 1].segment || 'visitor';
+    bySegment[lastSeg] = (bySegment[lastSeg] || 0) + 1;
+    let sessionStart = null;
+    let lastTs = 0;
+    evs.forEach((e) => {
+      if (e.page) byPath[e.page] = (byPath[e.page] || 0) + 1;
+      if (e.countryCode) {
+        if (!byCountry[e.countryCode]) byCountry[e.countryCode] = { name: e.countryName || e.countryCode, count: 0 };
+        byCountry[e.countryCode].count += 1;
+      }
+      if (sessionStart === null || e.ts - lastTs > SESSION_GAP_MS) {
+        if (sessionStart !== null) {
+          totalSessionMs += Math.min(lastTs - sessionStart, SESSION_GAP_MS);
+          totalSessions += 1;
+        }
+        sessionStart = e.ts;
+      }
+      lastTs = e.ts;
+    });
+    if (sessionStart !== null) {
+      totalSessionMs += Math.min(lastTs - sessionStart, SESSION_GAP_MS);
+      totalSessions += 1;
+    }
+  });
+
+  const topPaths = Object.entries(byPath)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([page, count]) => ({ page, count }));
+  const topCountries = Object.entries(byCountry)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 20)
+    .map(([code, v]) => ({ code, name: v.name, count: v.count }));
+
+  return {
+    period,
+    generatedAt: now,
+    online: { total: onlineSeen.size, bySegment: onlineBySegment },
+    pageviews: rangeEvents.length,
+    uniqueVisitors: Object.keys(byKey).length,
+    bySegment,
+    topPaths,
+    topCountries,
+    avgSessionMinutes: totalSessions ? Math.round((totalSessionMs / totalSessions / 60000) * 10) / 10 : 0,
+    retentionDays: ANALYTICS_LOG_MAX_DAYS,
+    logSize: log.length,
+  };
+}
+
 function logEvent(store, { email, type, detail }) {
   if (!Array.isArray(store.eventLog)) store.eventLog = [];
   store.eventLog.push({
@@ -840,6 +966,7 @@ function loadBookingStore() {
     }
     if (!store.setupSessions || typeof store.setupSessions !== 'object') store.setupSessions = {};
     if (!Array.isArray(store.eventLog)) store.eventLog = [];
+    if (!Array.isArray(store.analyticsLog)) store.analyticsLog = [];
     if (!Array.isArray(store.aiUsageLog)) store.aiUsageLog = [];
     if (!Array.isArray(store.users)) store.users = [];
     if (!store.userSessions || typeof store.userSessions !== 'object') store.userSessions = {};
@@ -905,6 +1032,7 @@ function loadBookingStore() {
       },
       setupSessions: {},
       eventLog: [],
+      analyticsLog: [], // ver buildSiteStats -- estadisticas del sitio (idea de Christian, 2026-09-11)
       aiUsageLog: [],
       users: [],
       userSessions: {},
@@ -2131,6 +2259,11 @@ async function handleBooking(req, res, url) {
       if (action === 'get-reports') {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
         return sendJson(res, 200, buildReports(store));
+      }
+      if (action === 'site-stats') {
+        if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+        const period = url.searchParams.get('period') || 'day';
+        return sendJson(res, 200, buildSiteStats(store, ['day', 'week', 'month'].includes(period) ? period : 'day'));
       }
       if (action === 'get-experiencia-summary') {
         if (!isAdminAuthorized(store, { setupToken: url.searchParams.get('setupToken') || '' })) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
@@ -3667,6 +3800,9 @@ async function handleBooking(req, res, url) {
       const page = String(payload.page || '').slice(0, 60);
       if (page) {
         logEvent(store, { email, type: 'page-visit', detail: { page } });
+        // Estadísticas del sitio -- sin geolocalización en local (ver
+        // comentario junto a buildSiteStats más arriba).
+        logAnalyticsEvent(store, { email, visitorId: String(payload.visitorId || ''), page, countryCode: '', countryName: '' });
         saveBookingStore(store);
       }
       return sendJson(res, 200, { ok: true });

@@ -357,7 +357,35 @@ window.arcanaGetExperienciaSummary = async function () {
 // Function), esto es solo para probarlo sin esperar al dia 1.
 window.arcanaSendMonthlyReportNow = (force) => arcanaBookingCall('send-monthly-admin-report', { force: !!force }); // -> { sent, failed, total, month } | { skipped, reason }
 
+// Id anónimo y persistente por navegador (no por persona -- si alguien
+// entra desde el celular y el notebook, cuentan como 2 "visitantes").
+// Sirve para poder contar visitas únicas y saber quién está en línea
+// ahora mismo en Estadísticas del sitio, incluso sin haber iniciado
+// sesión. No identifica a nadie por nombre ni email.
+function arcanaVisitorId() {
+  try {
+    let id = localStorage.getItem('vela_visitor_id');
+    if (!id) {
+      id = 'v-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('vela_visitor_id', id);
+    }
+    return id;
+  } catch { return ''; }
+}
+window.arcanaVisitorId = arcanaVisitorId;
+
 // Registro liviano de accesos y secciones visitadas (nunca preguntas ni
 // interpretaciones). Fire-and-forget: si falla, no interrumpe nada.
-window.arcanaLogEvent = (page) => arcanaBookingCall('log-event', { page }); // el email se deriva de la sesión si hay una activa
+window.arcanaLogEvent = (page) => arcanaBookingCall('log-event', { page, visitorId: arcanaVisitorId() }); // el email se deriva de la sesión si hay una activa
+
+// Estadísticas del sitio -- panel de Setup (idea de Christian, 2026-09-11):
+// personas conectadas ahora, movimientos por período, secciones más
+// vistas, países, tiempo promedio en la plataforma. Solo admin.
+window.arcanaGetSiteStats = async function (period) {
+  const setupToken = (() => { try { return JSON.parse(sessionStorage.getItem('arcana_setup_session') || 'null')?.token || ''; } catch { return ''; } })();
+  const res = await fetch('/.netlify/functions/booking?action=site-stats&period=' + encodeURIComponent(period || 'day') + '&setupToken=' + encodeURIComponent(setupToken));
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'No se pudieron cargar las estadísticas del sitio.');
+  return json; // { online, pageviews, uniqueVisitors, bySegment, topPaths, topCountries, avgSessionMinutes, ... }
+};
 
