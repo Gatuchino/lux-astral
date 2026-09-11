@@ -832,6 +832,37 @@ function MoonPage({ lang }) {
   const R = 108;
   const maskD = moonMaskPath(R, moon.k, litSide);
 
+  // Tarjeta de resultado compartible (idea #1 de la auditoría de producto):
+  // reutiliza el <svg> real de abajo (misma luna que el usuario ve, con su
+  // fase y orientación exactas) via src/data/share-card.js.
+  const moonSvgRef = React.useRef(null);
+  const [shareImgState, setShareImgState] = React.useState('idle');
+  const handleShareMoonImage = async () => {
+    if (shareImgState === 'busy') return;
+    setShareImgState('busy');
+    try {
+      const dateLabel = now.toLocaleDateString(lang === 'es' ? 'es-CL' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+      const blob = await window.renderMoonShareCard({
+        moonSvgEl: moonSvgRef.current,
+        phaseLabel: currentPhaseName,
+        illumPct: lp,
+        dateLabel,
+        ritual: ritualText,
+        lang,
+        logoSrc: 'assets/logo-mark.png',
+      });
+      const result = await window.shareOrDownloadImage(blob, `lux-astral-luna-${new Date().toISOString().slice(0, 10)}.png`, {
+        title: 'Lux Astral',
+        text: lang === 'es' ? 'La luna de hoy en Lux Astral' : "Today's moon on Lux Astral",
+      });
+      setShareImgState(result === 'cancelled' ? 'idle' : 'done');
+      if (result !== 'cancelled') setTimeout(() => setShareImgState('idle'), 2400);
+    } catch (e) {
+      setShareImgState('error');
+      setTimeout(() => setShareImgState('idle'), 2800);
+    }
+  };
+
   return (
     <div className="page moon-page">
       <div className="page-head">
@@ -845,7 +876,7 @@ function MoonPage({ lang }) {
         <div className="moon-hero-overlay" aria-hidden="true" />
         <div className="moon-visual">
           <div className="moon-orb-real">
-            <svg viewBox={`0 0 ${R * 2} ${R * 2}`} className="moon-svg" aria-hidden="true">
+            <svg viewBox={`0 0 ${R * 2} ${R * 2}`} className="moon-svg" aria-hidden="true" ref={moonSvgRef}>
               <defs>
                 <clipPath id="moonDiscClip">
                   <circle cx={R} cy={R} r={R - 2} />
@@ -869,6 +900,15 @@ function MoonPage({ lang }) {
           <p className="moon-line italic">
             "{lang === 'es' ? 'Iluminada en este momento' : 'Illuminated at this moment'}"
           </p>
+          <button className="btn btn-ghost moon-share-btn" onClick={handleShareMoonImage} disabled={shareImgState === 'busy'}>
+            {shareImgState === 'busy'
+              ? (lang === 'es' ? 'Generando…' : 'Generating…')
+              : shareImgState === 'done'
+              ? `✓ ${lang === 'es' ? 'Listo' : 'Done'}`
+              : shareImgState === 'error'
+              ? (lang === 'es' ? 'No se pudo generar' : "Couldn't generate")
+              : `🖼 ${lang === 'es' ? 'Compartir imagen' : 'Share image'}`}
+          </button>
           <MoonWeatherCard lang={lang} t={t} geo={geo} weather={weather} onRequestLocation={requestGeo} />
         </div>
       </div>
@@ -961,6 +1001,7 @@ function MoonPage({ lang }) {
           font-style: italic;
         }
         .moon-line { font-size: 20px; color: var(--ink); margin-bottom: 20px; }
+        .moon-share-btn { margin-bottom: 20px; }
 
         .moon-weather-card {
           display: flex;
