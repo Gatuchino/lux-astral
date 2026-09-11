@@ -14,10 +14,23 @@
   --purple: #5a3a8a;
   --rose: #b86a8a;
   --line: rgba(212, 168, 90, 0.18);
-  --line-strong: rgba(212, 168, 90, 0.45);
+  --line-strong: rgba(212, 168, 90, 0.6);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Foco visible para navegación con teclado (WCAG 2.4.7) — no cambia nada
+   con mouse/touch, solo aparece cuando se navega con Tab. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 html, body {
   width: 100%;
