@@ -6,6 +6,7 @@
 // PayPal (Orders API v2): cobramos directo con nuestra cuenta Business.
 import { getStore } from "@netlify/blobs";
 import tzlookup from "tz-lookup";
+import webpush from "web-push";
 
 const DEFAULT_SETTINGS = { sessionBasePrice: 29, planDiscounts: { luna: 10, estrella: 15, oraculo: 20 }, platformCommissionPct: 25 };
 
@@ -482,6 +483,7 @@ function seedStore() {
     readingsMigrated: {} as Record<string, boolean>,
     reviewsByTarotist: {} as Record<string, any[]>,
     giftCodes: [] as any[],
+    pushSubscriptions: [] as any[],
     astralChartsByEmail: {} as Record<string, any[]>,
     feedback: { ratings: [] as any[], suggestions: [] as any[] },
     settings: {
@@ -521,6 +523,7 @@ async function loadStore() {
   if (!raw.readingsMigrated || typeof raw.readingsMigrated !== "object") raw.readingsMigrated = {};
   if (!raw.reviewsByTarotist || typeof raw.reviewsByTarotist !== "object") raw.reviewsByTarotist = {};
   if (!Array.isArray(raw.giftCodes)) raw.giftCodes = [];
+  if (!Array.isArray(raw.pushSubscriptions)) raw.pushSubscriptions = [];
   if (!raw.astralChartsByEmail || typeof raw.astralChartsByEmail !== "object") raw.astralChartsByEmail = {};
   if (!raw.feedback || typeof raw.feedback !== "object") raw.feedback = { ratings: [], suggestions: [] };
   if (!Array.isArray(raw.settings.powerUsers) || !raw.settings.powerUsers.length) {
@@ -996,6 +999,44 @@ async function resendSend(
   return data;
 }
 
+// Notificaciones push (idea #10 de la auditoria de producto, a pedido de
+// Christian): recordatorio de sesion reservada, via Web Push + VAPID (sin
+// servicio de terceros -- funciona en cualquier navegador con Service
+// Worker). Las claves VAPID son un par fijo por sitio (se generan una
+// sola vez, nunca cambian) -- viven en variables de entorno de Netlify
+// (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT), igual que
+// RESEND_API_KEY. store.pushSubscriptions guarda una entrada por
+// dispositivo suscripto (una persona puede tener varios).
+function vapidReady() {
+  const pub = Netlify.env.get("VAPID_PUBLIC_KEY");
+  const priv = Netlify.env.get("VAPID_PRIVATE_KEY");
+  if (!pub || !priv) return false;
+  webpush.setVapidDetails(Netlify.env.get("VAPID_SUBJECT") || "mailto:contacto@luxastral.com", pub, priv);
+  return true;
+}
+async function sendWebPushToEmail(store: any, email: string, payload: any) {
+  if (!vapidReady()) return { sent: 0, skipped: true };
+  const key = (email || "").trim().toLowerCase();
+  const subs = store.pushSubscriptions.filter((s: any) => s.email === key);
+  let sent = 0;
+  const body = JSON.stringify(payload);
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body);
+      sent++;
+    } catch (e: any) {
+      // 404/410 = el navegador/dispositivo ya no existe (desinstalo,
+      // limpio datos, etc.) -- se limpia la suscripcion vieja acá mismo.
+      if (e && (e.statusCode === 404 || e.statusCode === 410)) {
+        store.pushSubscriptions = store.pushSubscriptions.filter((s: any) => s.endpoint !== sub.endpoint);
+      } else {
+        console.error("[booking:push]", e && e.statusCode, e && e.message);
+      }
+    }
+  }
+  return { sent, skipped: false };
+}
+
 function verifyEmailHtml(verifyUrl: string, es: boolean) {
   const title = es ? "Confirma tu email" : "Confirm your email";
   const body = es
@@ -1461,6 +1502,9 @@ export default async (req: Request) => {
           return json(401, { error: "Contraseña de administración incorrecta o faltante." });
         }
         return json(200, buildExperienciaLecturaSummary(store));
+      }
+      if (action === "push-vapid-key") {
+        return json(200, { publicKey: Netlify.env.get("VAPID_PUBLIC_KEY") || "" });
       }
       return json(404, { error: "Acción GET desconocida." });
     }
@@ -2686,6 +2730,66 @@ export default async (req: Request) => {
       logEvent(store, { email, type: "gift-redeemed", detail: { planKey: gift.planKey, billing: gift.billing, code } });
       await saveStore(store);
       return json(200, { ok: true, planKey: entry.planKey, expiresAt: entry.expiresAt });
+    }
+
+    // Notificaciones push -- suscripcion/desuscripcion del dispositivo
+    // (idea #10 de la auditoria de producto). El Service Worker que recibe
+    // el evento "push" vive en push-sw.js (raiz del sitio, alcance /).
+    if (action === "push-subscribe") {
+      const email = requireUserAuth(store, payload);
+      if (!email) return json(401, { error: "Sesion vencida - inicia sesion de nuevo." });
+      const sub = payload.subscription;
+      if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+        return json(400, { error: "Suscripcion invalida." });
+      }
+      store.pushSubscriptions = store.pushSubscriptions.filter((s: any) => s.endpoint !== sub.endpoint);
+      store.pushSubscriptions.push({
+        email, endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+        createdAt: new Date().toISOString(),
+      });
+      await saveStore(store);
+      return json(200, { ok: true });
+    }
+
+    if (action === "push-unsubscribe") {
+      const email = requireUserAuth(store, payload);
+      if (!email) return json(401, { error: "Sesion vencida - inicia sesion de nuevo." });
+      const endpoint = payload.endpoint;
+      store.pushSubscriptions = store.pushSubscriptions.filter((s: any) => !(s.email === email && s.endpoint === endpoint));
+      await saveStore(store);
+      return json(200, { ok: true });
+    }
+
+    // Recordatorio de sesion reservada -- llamada por el cron de Netlify
+    // (netlify/functions/session-reminder-cron.mts) cada 15 minutos, con
+    // el mismo patron de autenticacion por CRON_SECRET que
+    // "send-daily-newsletter". Manda un push una sola vez por reserva,
+    // dentro de la ultima hora antes de que empiece la sesion (booking.
+    // reminderSentAt evita reenvios en el siguiente tick del cron).
+    if (action === "send-session-reminders") {
+      const cronSecret = Netlify.env.get("CRON_SECRET");
+      const isCron = !!cronSecret && payload.cronSecret === cronSecret;
+      if (!isCron) return json(401, { error: "No autorizado." });
+      if (!vapidReady()) return json(200, { skipped: true, reason: "vapid-not-configured" });
+
+      const now = Date.now();
+      let sent = 0;
+      for (const b of store.bookings) {
+        if (b.status !== "paid" || b.reminderSentAt) continue;
+        const tr = store.tarotists.find((x: any) => x.id === b.tarotistId);
+        const slot = tr && tr.availability.find((s: any) => s.id === b.slotId);
+        if (!slot || !slot.startsAt) continue;
+        const minutesUntil = (new Date(slot.startsAt).getTime() - now) / 60000;
+        if (minutesUntil <= 0 || minutesUntil > 60) continue;
+        const res = await sendWebPushToEmail(store, b.customerEmail, {
+          title: "Tu sesión en Lux Astral empieza pronto",
+          body: `Con ${tr ? tr.name : "tu tarotista"} en menos de una hora.`,
+          url: "/Arcana.html#/dashboard",
+        });
+        if (res.sent > 0) { b.reminderSentAt = new Date().toISOString(); sent++; }
+      }
+      await saveStore(store);
+      return json(200, { sent });
     }
 
     if (action === "setup-login") {

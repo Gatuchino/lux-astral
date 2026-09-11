@@ -1721,6 +1721,26 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
   const [photoBusy, setPhotoBusy] = React.useState(false);
   const [photoError, setPhotoError] = React.useState('');
 
+  // Notificaciones push (idea #10 de la auditoria de producto): un solo
+  // toggle global por dispositivo/navegador -- cubre cualquier sesion
+  // futura que se reserve, no hace falta repetirlo por reserva.
+  const [pushSub, setPushSub] = React.useState(false);
+  const [pushBusy, setPushBusy] = React.useState(false);
+  const [pushError, setPushError] = React.useState('');
+  React.useEffect(() => {
+    if (window.arcanaPushIsSubscribed) window.arcanaPushIsSubscribed().then(setPushSub).catch(() => {});
+  }, []);
+  const togglePush = () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    setPushError('');
+    const action = pushSub ? window.arcanaPushUnsubscribe() : window.arcanaPushSubscribe();
+    action
+      .then(() => setPushSub(!pushSub))
+      .catch((e) => setPushError(e.message || (es ? 'No se pudo activar.' : 'Could not enable.')))
+      .finally(() => setPushBusy(false));
+  };
+
   const startEdit = () => {
     setDraftName(profile.name || '');
     setDraftEmail(profile.email || '');
@@ -2021,6 +2041,10 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
             <button className="btn btn-ghost" onClick={startEdit}>✎ {es ? 'Editar perfil' : 'Edit profile'}</button>
             <button className="btn btn-ghost" onClick={() => setRoute({ page: 'gift' })}>🎁 {es ? 'Regalar / canjear' : 'Gift / redeem'}</button>
+            <button className="btn btn-ghost" onClick={togglePush} disabled={pushBusy}>
+              {pushBusy ? '…' : pushSub ? `🔕 ${es ? 'Desactivar avisos' : 'Turn off alerts'}` : `🔔 ${es ? 'Avisos de sesión' : 'Session alerts'}`}
+            </button>
+            {pushError && <p style={{ color: '#e08080', fontSize: 12, marginTop: 4 }}>{pushError}</p>}
           </div>
         )}
       </div>

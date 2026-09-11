@@ -24,6 +24,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const crypto = require('crypto');
 const tzlookup = require('tz-lookup');
+const webpush = require('web-push');
 
 const PORT = process.env.PORT || 8888;
 const ROOT = __dirname;
@@ -823,6 +824,7 @@ function loadBookingStore() {
     if (!store.readingsMigrated || typeof store.readingsMigrated !== 'object') store.readingsMigrated = {};
     if (!store.reviewsByTarotist || typeof store.reviewsByTarotist !== 'object') store.reviewsByTarotist = {};
     if (!Array.isArray(store.giftCodes)) store.giftCodes = [];
+    if (!Array.isArray(store.pushSubscriptions)) store.pushSubscriptions = [];
     if (!store.astralChartsByEmail || typeof store.astralChartsByEmail !== 'object') store.astralChartsByEmail = {};
     if (!store.feedback || typeof store.feedback !== 'object') store.feedback = { ratings: [], suggestions: [] };
     if (!Array.isArray(store.settings.powerUsers) || !store.settings.powerUsers.length) {
@@ -877,6 +879,7 @@ function loadBookingStore() {
       readingsMigrated: {},
       reviewsByTarotist: {},
       giftCodes: [],
+      pushSubscriptions: [],
       astralChartsByEmail: {},
       feedback: { ratings: [], suggestions: [] },
       settings: {
@@ -1392,6 +1395,36 @@ async function resendSend(to, subject, html, opts = {}) {
   return data;
 }
 
+// Notificaciones push -- ver netlify/functions/booking.mts para la
+// explicacion completa; misma logica, adaptada a process.env.
+function vapidReady() {
+  const pub = process.env.VAPID_PUBLIC_KEY;
+  const priv = process.env.VAPID_PRIVATE_KEY;
+  if (!pub || !priv) return false;
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:contacto@luxastral.com', pub, priv);
+  return true;
+}
+async function sendWebPushToEmail(store, email, payload) {
+  if (!vapidReady()) return { sent: 0, skipped: true };
+  const key = (email || '').trim().toLowerCase();
+  const subs = store.pushSubscriptions.filter((s) => s.email === key);
+  let sent = 0;
+  const body = JSON.stringify(payload);
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body);
+      sent++;
+    } catch (e) {
+      if (e && (e.statusCode === 404 || e.statusCode === 410)) {
+        store.pushSubscriptions = store.pushSubscriptions.filter((s) => s.endpoint !== sub.endpoint);
+      } else {
+        console.error('[booking:push]', e && e.statusCode, e && e.message);
+      }
+    }
+  }
+  return { sent, skipped: false };
+}
+
 function verifyEmailHtml(verifyUrl, es) {
   const title = es ? 'Confirmá tu email' : 'Confirm your email';
   const body = es
@@ -1839,6 +1872,9 @@ async function handleBooking(req, res, url) {
         const email = requireUserAuth(store, { sessionToken: url.searchParams.get('sessionToken') || '' });
         if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
         return sendJson(res, 200, { ok: true, email, user: publicUser(store, email) });
+      }
+      if (action === 'push-vapid-key') {
+        return sendJson(res, 200, { publicKey: process.env.VAPID_PUBLIC_KEY || '' });
       }
       return sendJson(res, 404, { error: 'Acción GET desconocida.' });
     }
@@ -3119,6 +3155,60 @@ async function handleBooking(req, res, url) {
       logEvent(store, { email, type: 'gift-redeemed', detail: { planKey: gift.planKey, billing: gift.billing, code } });
       saveBookingStore(store);
       return sendJson(res, 200, { ok: true, planKey: entry.planKey, expiresAt: entry.expiresAt });
+    }
+
+    // Notificaciones push -- ver netlify/functions/booking.mts para la
+    // explicacion completa; misma logica, adaptada a sendJson.
+    if (action === 'push-subscribe') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const sub = payload.subscription;
+      if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+        return sendJson(res, 400, { error: 'Suscripción inválida.' });
+      }
+      store.pushSubscriptions = store.pushSubscriptions.filter((s) => s.endpoint !== sub.endpoint);
+      store.pushSubscriptions.push({
+        email, endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+        createdAt: new Date().toISOString(),
+      });
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (action === 'push-unsubscribe') {
+      const email = requireUserAuth(store, payload);
+      if (!email) return sendJson(res, 401, { error: 'Sesión vencida — iniciá sesión de nuevo.' });
+      const endpoint = payload.endpoint;
+      store.pushSubscriptions = store.pushSubscriptions.filter((s) => !(s.email === email && s.endpoint === endpoint));
+      saveBookingStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (action === 'send-session-reminders') {
+      // En local no hay Netlify Scheduled Functions -- este es solo el
+      // botón manual (requireAdmin) para poder probar el flujo entero
+      // (ver netlify/functions/session-reminder-cron.mts para el cron real).
+      if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
+      if (!vapidReady()) return sendJson(res, 200, { skipped: true, reason: 'vapid-not-configured' });
+
+      const now = Date.now();
+      let sent = 0;
+      for (const b of store.bookings) {
+        if (b.status !== 'paid' || b.reminderSentAt) continue;
+        const tr = store.tarotists.find((x) => x.id === b.tarotistId);
+        const slot = tr && tr.availability.find((s) => s.id === b.slotId);
+        if (!slot || !slot.startsAt) continue;
+        const minutesUntil = (new Date(slot.startsAt).getTime() - now) / 60000;
+        if (minutesUntil <= 0 || minutesUntil > 60) continue;
+        const res2 = await sendWebPushToEmail(store, b.customerEmail, {
+          title: 'Tu sesión en Lux Astral empieza pronto',
+          body: `Con ${tr ? tr.name : 'tu tarotista'} en menos de una hora.`,
+          url: '/Arcana.html#/dashboard',
+        });
+        if (res2.sent > 0) { b.reminderSentAt = new Date().toISOString(); sent++; }
+      }
+      saveBookingStore(store);
+      return sendJson(res, 200, { sent });
     }
 
     if (action === 'setup-login') {
