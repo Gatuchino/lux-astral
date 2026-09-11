@@ -48,6 +48,14 @@ function arcanaSessionToken() {
   try { return JSON.parse(localStorage.getItem('vela_session') || 'null')?.token || ''; } catch { return ''; }
 }
 
+// Blog editorial (idea #9): el contenido vive en el store (Blobs), no en
+// un archivo estatico -- asi las notas nuevas que genera el cron semanal
+// aparecen sin necesidad de un deploy nuevo.
+window.arcanaBlogPosts = async function () {
+  const res = await fetch('/.netlify/functions/booking?action=blog-posts');
+  if (!res.ok) throw new Error('No se pudieron cargar las notas del blog.');
+  return res.json(); // { posts: [...] }
+};
 window.arcanaFetchTarotistas = async function () {
   const res = await fetch('/.netlify/functions/booking?action=tarotistas');
   if (!res.ok) throw new Error('No se pudo cargar el Marketplace.');
