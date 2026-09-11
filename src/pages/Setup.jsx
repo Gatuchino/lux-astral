@@ -95,6 +95,7 @@ const SETUP_CATEGORIES = [
   { id: 'tienda', icon: '🛍️', label_es: 'Tienda', label_en: 'Shop', desc_es: 'Merchandising y tarifas de envío.', desc_en: 'Merchandise and shipping rates.' },
   { id: 'ia', icon: '✨', label_es: 'Inteligencia Artificial', label_en: 'Artificial intelligence', desc_es: 'Modelo de IA, voz y uso/costos.', desc_en: 'AI model, voice, and usage/costs.' },
   { id: 'experiencia', icon: '🔮', label_es: 'Experiencia de lectura', label_en: 'Reading experience', desc_es: 'Tipo de respuesta y aspectos visuales.', desc_en: 'Response type and visual style.' },
+  { id: 'estadisticas', icon: '📈', label_es: 'Estadísticas del sitio', label_en: 'Site statistics', desc_es: 'Quién está en línea, tráfico por período, secciones más vistas y países.', desc_en: 'Who\'s online, traffic by period, top sections and countries.' },
   { id: 'negocio', icon: '📊', label_es: 'Negocio y datos', label_en: 'Business & data', desc_es: 'Informes, respaldo de datos y próximas ideas.', desc_en: 'Reports, data backup, and upcoming ideas.' },
 ];
 // Indice plano para el buscador -- un item por cada SetupSection real. El
@@ -103,7 +104,7 @@ const SETUP_CATEGORIES = [
 const SETUP_SEARCH_INDEX = [
   { id: 'pwd', categoryId: 'cuenta', title_es: 'Cambiar contraseña del panel', title_en: 'Change panel password' },
   { id: 'accounts', categoryId: 'cuenta', title_es: 'Cuentas y accesos', title_en: 'Accounts & access' },
-  { id: 'sitestats', categoryId: 'negocio', title_es: 'Estadísticas del sitio', title_en: 'Site statistics' },
+  { id: 'sitestats', categoryId: 'estadisticas', title_es: 'Estadísticas del sitio', title_en: 'Site statistics' },
   { id: 'informes', categoryId: 'negocio', title_es: 'Informes', title_en: 'Reports' },
   { id: 'room', categoryId: 'video', title_es: 'Salón de chat y videoconferencia', title_en: 'Chat room & video conference' },
   { id: 'readers', categoryId: 'video', title_es: 'Tarotistas', title_en: 'Readers' },
@@ -1420,7 +1421,7 @@ function SetupPage({ lang, setRoute, variants, setVariant, profile, isPowerUser 
       </div>
       )}
 
-      {activeCategory === 'negocio' && (
+      {activeCategory === 'estadisticas' && (
       <div id="setup-sec-sitestats">
       {/* ---------- Estadísticas del sitio: en línea ahora, tráfico,
           secciones, países (a pedido de Christian, 2026-09-11) ---------- */}
