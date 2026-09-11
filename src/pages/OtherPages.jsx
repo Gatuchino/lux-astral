@@ -4012,6 +4012,7 @@ const CHECKOUT_STYLES = `
 
 function PricingPage({ lang, setRoute, profile }) {
   const t = window.I18N[lang];
+  const es = lang === 'es';
   const go = (page) => { if (typeof setRoute === 'function') setRoute({ page }); };
   const [billing, setBilling] = React.useState('year'); // 'month' | 'year'
   const [openFaq, setOpenFaq] = React.useState(0);
