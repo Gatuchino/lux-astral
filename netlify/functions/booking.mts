@@ -1969,10 +1969,40 @@ export default async (req: Request) => {
     }
 
     if (action === "send-daily-newsletter") {
-      if (!requireAdmin(store, payload, action)) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
-      // Botón manual en Setup (el disparo automático queda pendiente de la
-      // decisión de hosting) -- usa SIEMPRE la carta del día real de la
-      // plataforma (nunca una inventada), la IA solo redacta el texto.
+      // 2026-09-11 (a pedido de Christian, boletín 8:30am que no se mandó
+      // solo): llamable de dos formas, igual que send-monthly-admin-report
+      // -- (a) a mano desde Setup, con sesión de administración normal
+      // (requireAdmin), siempre manda de inmediato (solo respeta el tope
+      // de una vez por día, salvo "force"); o (b) por el cron de Netlify
+      // cada 15 min (netlify/functions/daily-newsletter-cron.mts), que se
+      // autentica con CRON_SECRET y además debe respetar el horario
+      // configurado en Setup (store.settings.newsletterSchedule) -- si no,
+      // se mandaría apenas arranca el primer tick del día. Sin CRON_SECRET
+      // configurado, la vía (b) no puede llamar a esta acción -- solo (a).
+      const cronSecret = Netlify.env.get("CRON_SECRET");
+      const isCron = !!cronSecret && payload.cronSecret === cronSecret;
+      const adminEmail = isCron ? "cron" : requireAdmin(store, payload, action);
+      if (!adminEmail) return json(401, { error: "Contraseña de administración incorrecta o faltante." });
+      if (isCron) {
+        // Hora real en Chile (huso IANA, ajusta solo por horario de verano
+        // automáticamente -- no hay que tocar nada acá dos veces al año).
+        const sched = store.settings.newsletterSchedule || DEFAULT_NEWSLETTER_SCHEDULE;
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/Santiago", hourCycle: "h23",
+          weekday: "short", hour: "2-digit", minute: "2-digit",
+        }).formatToParts(new Date());
+        const get = (t: string) => (parts.find((p) => p.type === t) || ({} as any)).value || "";
+        const WEEKDAY_IDX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        const nowWeekday = WEEKDAY_IDX[get("weekday")] ?? new Date().getUTCDay();
+        const nowMinutes = Number(get("hour")) * 60 + Number(get("minute"));
+        const days = Array.isArray(sched.daysOfWeek) ? sched.daysOfWeek : DEFAULT_NEWSLETTER_SCHEDULE.daysOfWeek;
+        const schedMinutes = Number(sched.hour ?? 8) * 60 + Number(sched.minute ?? 0);
+        if (!days.includes(nowWeekday) || nowMinutes < schedMinutes) {
+          return json(200, { skipped: true, reason: "not-yet-scheduled-time" });
+        }
+      }
+      // Usa SIEMPRE la carta del día real de la plataforma (nunca una
+      // inventada), la IA solo redacta el texto.
       const today = todayKey();
       if (store.settings.lastNewsletterSentDate === today && !payload.force) {
         return json(200, { skipped: true, reason: "already-sent-today" });

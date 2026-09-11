@@ -2389,12 +2389,16 @@ async function handleBooking(req, res, url) {
     }
 
     if (action === 'send-daily-newsletter') {
+      // 2026-09-11 -- ver netlify/functions/booking.mts y
+      // daily-newsletter-cron.mts para el comentario completo del disparo
+      // automático (cron cada 15 min, respeta el horario de Setup en hora
+      // de Chile). En local no hay Netlify Scheduled Functions, así que
+      // esto es solo el botón manual de Setup (requireAdmin) — manda
+      // siempre de inmediato, sin chequear el horario configurado.
       if (!requireAdmin(store, payload, action)) return sendJson(res, 401, { error: 'Contraseña de administración incorrecta o faltante.' });
-      // Botón manual en Setup (el disparo automático queda pendiente de la
-      // decisión de hosting) — usa SIEMPRE la carta del día real de la
-      // plataforma (nunca una inventada), la IA solo redacta el texto, y
-      // arma el email con el template de Setup. Como mucho una vez por
-      // día salvo que se pida "force" (para poder probarlo).
+      // Usa SIEMPRE la carta del día real de la plataforma (nunca una
+      // inventada), la IA solo redacta el texto, y arma el email con el
+      // template de Setup. Como mucho una vez por día salvo "force".
       const today = todayKey();
       if (store.settings.lastNewsletterSentDate === today && !payload.force) {
         return sendJson(res, 200, { skipped: true, reason: 'already-sent-today' });
