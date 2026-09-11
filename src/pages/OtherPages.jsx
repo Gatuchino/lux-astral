@@ -614,7 +614,7 @@ function placeLabelFromTimezone(tz) {
 // desde el navegador sin pasar por el backend. Usa la misma geolocalización
 // que orienta la luna según el hemisferio (un solo permiso para las dos
 // cosas).
-function MoonWeatherCard({ lang, t, geo, weather }) {
+function MoonWeatherCard({ lang, t, geo, weather, onRequestLocation }) {
   if (weather.status === 'ok') {
     const cur = weather.data.current;
     const label = weatherLabel(cur.weather_code, cur.is_day, lang);
@@ -644,6 +644,11 @@ function MoonWeatherCard({ lang, t, geo, weather }) {
     <div className="moon-weather-card moon-weather-status">
       <span>🌦️</span>
       <p>{msg}</p>
+      {geo.status === 'denied' && (
+        <button type="button" className="btn btn-ghost weather-enable-btn" onClick={onRequestLocation}>
+          {t.weather_enable_cta}
+        </button>
+      )}
     </div>
   );
 }
@@ -660,7 +665,7 @@ function iconAnimClass(code) {
 // lluvia por día. Reutiliza el mismo pedido a Open-Meteo que ya trae el
 // clima actual (el bloque "daily" viaja en la misma respuesta, sin
 // llamadas de red extra) para el rectángulo debajo del ritual sugerido.
-function MoonForecastCard({ lang, t, geo, weather }) {
+function MoonForecastCard({ lang, t, geo, weather, onRequestLocation }) {
   if (weather.status !== 'ok' || !weather.data.daily) {
     let msg = t.weather_loading;
     if (geo.status === 'denied') msg = t.weather_location_denied;
@@ -670,6 +675,11 @@ function MoonForecastCard({ lang, t, geo, weather }) {
       <div className="forecast-card forecast-card-status">
         <span>🌦️</span>
         <p>{msg}</p>
+        {geo.status === 'denied' && (
+          <button type="button" className="btn btn-ghost weather-enable-btn" onClick={onRequestLocation}>
+            {t.weather_enable_cta}
+          </button>
+        )}
       </div>
     );
   }
@@ -790,7 +800,10 @@ function MoonPage({ lang }) {
   // la convención de hemisferio norte y el widget muestra un aviso, sin
   // bloquear el resto de la página.
   const [geo, setGeo] = React.useState({ status: 'idle' });
-  React.useEffect(() => {
+  // Función reutilizable: la dispara el efecto al entrar a la página, y
+  // también el botón "Activar ubicación" del widget de clima, para el caso
+  // (algunos navegadores/celulares) en que no aparece el aviso nativo solo.
+  const requestGeo = React.useCallback(() => {
     if (!('geolocation' in navigator)) { setGeo({ status: 'unsupported' }); return; }
     setGeo({ status: 'pending' });
     navigator.geolocation.getCurrentPosition(
@@ -799,6 +812,7 @@ function MoonPage({ lang }) {
       { timeout: 8000, maximumAge: 10 * 60 * 1000 }
     );
   }, []);
+  React.useEffect(() => { requestGeo(); }, [requestGeo]);
 
   const [weather, setWeather] = React.useState({ status: 'idle' });
   React.useEffect(() => {
@@ -855,7 +869,7 @@ function MoonPage({ lang }) {
           <p className="moon-line italic">
             "{lang === 'es' ? 'Iluminada en este momento' : 'Illuminated at this moment'}"
           </p>
-          <MoonWeatherCard lang={lang} t={t} geo={geo} weather={weather} />
+          <MoonWeatherCard lang={lang} t={t} geo={geo} weather={weather} onRequestLocation={requestGeo} />
         </div>
       </div>
 
@@ -882,7 +896,7 @@ function MoonPage({ lang }) {
 
       <div className="moon-section moon-section-forecast">
         <div className="eyebrow" style={{ marginBottom: 12 }}>— {t.weather_forecast_h} —</div>
-        <MoonForecastCard lang={lang} t={t} geo={geo} weather={weather} />
+        <MoonForecastCard lang={lang} t={t} geo={geo} weather={weather} onRequestLocation={requestGeo} />
       </div>
 
       <style>{`
@@ -958,8 +972,9 @@ function MoonPage({ lang }) {
           border-radius: 12px;
           backdrop-filter: blur(2px);
         }
-        .moon-weather-status { color: var(--ink-soft); font-size: 14px; }
+        .moon-weather-status { color: var(--ink-soft); font-size: 14px; flex-wrap: wrap; row-gap: 10px; }
         .moon-weather-status p { margin: 0; }
+        .weather-enable-btn { flex: 1 0 100%; justify-content: center; }
         .moon-weather-icon { font-size: 34px; line-height: 1; }
         .moon-weather-main { display: flex; flex-direction: column; gap: 4px; }
         .moon-weather-place {
@@ -992,6 +1007,7 @@ function MoonPage({ lang }) {
           padding: 40px 32px;
         }
         .forecast-card-status p { margin: 0; }
+        .forecast-card-status { flex-wrap: wrap; row-gap: 10px; }
         .forecast-chart-wrap { width: 100%; margin-bottom: 8px; }
         .forecast-chart { width: 100%; height: 100px; display: block; overflow: visible; }
         .forecast-line {

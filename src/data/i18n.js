@@ -208,6 +208,7 @@ window.I18N = {
     weather_wind: "Viento",
     weather_forecast_h: "Pronóstico de los próximos días",
     weather_today: "Hoy",
+    weather_enable_cta: "Activar ubicación",
 
     // Marketplace — Arcana Tarot Live
     market_h: "Sesiones en vivo",
@@ -802,6 +803,7 @@ window.I18N = {
     weather_wind: "Wind",
     weather_forecast_h: "Forecast for the coming days",
     weather_today: "Today",
+    weather_enable_cta: "Enable location",
 
     // Marketplace — Arcana Tarot Live
     market_h: "Live sessions",
