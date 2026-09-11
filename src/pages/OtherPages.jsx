@@ -38,10 +38,14 @@ function ChartPage({ lang }) {
 
   return (
     <div className="page chart-page">
-      <div className="page-head">
-        <div className="eyebrow">— {t.nav_chart} —</div>
-        <h1 className="page-title">{t.chart_h}</h1>
-        <p className="page-sub italic">{t.chart_sub}</p>
+      <div className="page-head chart-hero-band">
+        <img src="assets/astral-chart-scene.jpg" alt="" aria-hidden="true" className="chart-hero-photo" />
+        <div className="chart-hero-overlay" aria-hidden="true" />
+        <div className="chart-hero-inner">
+          <div className="eyebrow">— {t.nav_chart} —</div>
+          <h1 className="page-title">{t.chart_h}</h1>
+          <p className="page-sub italic">{t.chart_sub}</p>
+        </div>
       </div>
 
       <div className="chart-container">
@@ -142,6 +146,36 @@ function ChartPage({ lang }) {
         .page-title { font-size: clamp(40px, 5vw, 64px); font-weight: 400; margin-bottom: 12px; }
         .page-sub { font-size: 20px; color: var(--ink-soft); }
 
+        .chart-hero-band {
+          position: relative;
+          overflow: hidden;
+          isolation: isolate;
+          border-radius: 24px;
+          border: 1px solid var(--line);
+          padding: 64px 32px 56px;
+        }
+        .chart-hero-photo {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          object-position: 50% 38%;
+          z-index: -2;
+        }
+        .chart-hero-overlay {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(circle at 50% 40%, rgba(15,10,36,0.5), rgba(15,10,36,0.9) 70%),
+            rgba(15,10,36,0.5);
+          z-index: -1;
+        }
+        .chart-hero-inner { position: relative; }
+        @media (max-width: 640px) {
+          .chart-hero-band { padding: 44px 20px 36px; }
+        }
+
         .chart-container {
           display: grid;
           grid-template-columns: 360px 1fr;
@@ -228,6 +262,8 @@ function MoonPage({ lang }) {
       </div>
 
       <div className="moon-hero">
+        <img src="assets/moon-phases-arc.jpg" alt="" aria-hidden="true" className="moon-hero-photo" />
+        <div className="moon-hero-overlay" aria-hidden="true" />
         <div className="moon-visual">
           <div className="moon-orb" style={{ '--illum': lp }}>
             <div className="moon-shadow" />
@@ -271,6 +307,9 @@ function MoonPage({ lang }) {
         .page-sub { font-size: 20px; color: var(--ink-soft); }
 
         .moon-hero {
+          position: relative;
+          overflow: hidden;
+          isolation: isolate;
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 64px;
@@ -280,6 +319,23 @@ function MoonPage({ lang }) {
           background: linear-gradient(135deg, rgba(90, 58, 138, 0.15), rgba(15, 10, 36, 0.5));
           border: 1px solid var(--line);
           border-radius: 20px;
+        }
+        .moon-hero-photo {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          object-position: 50% 22%;
+          z-index: -2;
+        }
+        .moon-hero-overlay {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(circle at 26% 50%, rgba(15,10,36,0.45), rgba(15,10,36,0.88) 68%),
+            linear-gradient(120deg, rgba(15,10,36,0.85) 0%, rgba(15,10,36,0.55) 45%, rgba(15,10,36,0.82) 100%);
+          z-index: -1;
         }
         .moon-visual { display: flex; justify-content: center; }
         .moon-orb {
