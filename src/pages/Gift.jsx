@@ -115,6 +115,12 @@ function GiftPage({ lang, setRoute, profile, requireAuth }) {
           background: rgba(212,168,90,0.12); border: 1px dashed var(--gold); border-radius: 10px;
         }
         .gift-error { color: #e08080; font-size: 13px; margin-top: 10px; }
+        .checkout-trust-note {
+          display: flex; align-items: center; gap: 8px; margin-top: 14px;
+          padding: 12px 14px; border-radius: 10px;
+          background: rgba(90, 200, 140, 0.08); border: 1px solid rgba(90, 200, 140, 0.25);
+          font-size: 12.5px; line-height: 1.4; color: var(--ink-soft);
+        }
         .gift-redeem-form { display: flex; gap: 10px; flex-wrap: wrap; }
         .gift-redeem-form input { flex: 1; min-width: 200px; text-transform: uppercase; letter-spacing: 0.04em; }
       `}</style>
@@ -295,6 +301,11 @@ function GiftGiveSection({ lang, profile }) {
             {es ? `Regalando ${GIFT_PLAN_META[planKey].name} (${billing === 'year' ? 'anual' : 'mensual'}) — $${price} USD` : `Gifting ${GIFT_PLAN_META[planKey].name} (${billing === 'year' ? 'yearly' : 'monthly'}) — $${price} USD`}
           </p>
           <div ref={buttonBoxRef} />
+          <p className="checkout-trust-note">
+            🔒 {es
+              ? 'Pago seguro: tu tarjeta se procesa directo en los servidores de PayPal, nunca pasa por Lux Astral.'
+              : 'Secure payment: your card is processed directly by PayPal, it never passes through Lux Astral.'}
+          </p>
           {error && <p className="gift-error">{error}</p>}
           <button className="btn btn-ghost" style={{ marginTop: 12 }} onClick={() => setStep('form')}>{es ? '← Volver' : '← Back'}</button>
         </>

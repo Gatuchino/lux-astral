@@ -3846,6 +3846,19 @@ const CHECKOUT_STYLES = `
           color: var(--ink-mute);
         }
         .live-paypal-box { min-height: 45px; margin-top: 10px; }
+        .checkout-trust-note {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 14px;
+          padding: 12px 14px;
+          border-radius: 10px;
+          background: rgba(90, 200, 140, 0.08);
+          border: 1px solid rgba(90, 200, 140, 0.25);
+          font-size: 12.5px;
+          line-height: 1.4;
+          color: var(--ink-soft);
+        }
 
         .checkout-nav-row {
           display: flex;
@@ -4858,6 +4871,12 @@ function PlanCheckoutPage({ lang, setRoute, profile, planKey: routePlanKey, bill
               </div>
             )}
 
+            <p className="checkout-trust-note">
+              🔒 {es
+                ? 'Pago seguro: tu tarjeta se procesa directo en los servidores de PayPal, nunca pasa por Lux Astral.'
+                : 'Secure payment: your card is processed directly by PayPal, it never passes through Lux Astral.'}
+            </p>
+
             <div className="checkout-nav-row">
               <button className="btn btn-ghost" onClick={() => setStep('details')}>← {es ? 'Volver' : 'Back'}</button>
             </div>
@@ -5412,6 +5431,12 @@ function SessionCheckoutPage({ lang, setRoute, profile, tarotistId }) {
                     {es ? 'Aceptá las políticas para habilitar el pago.' : 'Accept the policies to enable payment.'}
                   </div>
                 )}
+
+                <p className="checkout-trust-note">
+                  🔒 {es
+                    ? 'Pago seguro: tu tarjeta se procesa directo en los servidores de PayPal, nunca pasa por Lux Astral.'
+                    : 'Secure payment: your card is processed directly by PayPal, it never passes through Lux Astral.'}
+                </p>
 
                 <div className="checkout-nav-row">
                   <button className="btn btn-ghost" onClick={() => setStep('intro')}>← {es ? 'Volver' : 'Back'}</button>
