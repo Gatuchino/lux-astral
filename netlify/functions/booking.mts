@@ -481,6 +481,7 @@ function seedStore() {
     readingsByEmail: {} as Record<string, any[]>,
     readingsMigrated: {} as Record<string, boolean>,
     reviewsByTarotist: {} as Record<string, any[]>,
+    giftCodes: [] as any[],
     astralChartsByEmail: {} as Record<string, any[]>,
     feedback: { ratings: [] as any[], suggestions: [] as any[] },
     settings: {
@@ -519,6 +520,7 @@ async function loadStore() {
   if (!raw.readingsByEmail || typeof raw.readingsByEmail !== "object") raw.readingsByEmail = {};
   if (!raw.readingsMigrated || typeof raw.readingsMigrated !== "object") raw.readingsMigrated = {};
   if (!raw.reviewsByTarotist || typeof raw.reviewsByTarotist !== "object") raw.reviewsByTarotist = {};
+  if (!Array.isArray(raw.giftCodes)) raw.giftCodes = [];
   if (!raw.astralChartsByEmail || typeof raw.astralChartsByEmail !== "object") raw.astralChartsByEmail = {};
   if (!raw.feedback || typeof raw.feedback !== "object") raw.feedback = { ratings: [], suggestions: [] };
   if (!Array.isArray(raw.settings.powerUsers) || !raw.settings.powerUsers.length) {
@@ -557,6 +559,18 @@ function genBookingAccessCode() {
   let s = "";
   for (let i = 0; i < 6; i++) s += hex[Math.floor(Math.random() * 16)];
   return "LUX-" + s;
+}
+// Codigo canjeable de regalo (idea #9 de la auditoria de producto): el
+// comprador paga un plan por PayPal como cualquier suscripcion, pero en
+// vez de activarse en su propia cuenta se genera este codigo para que lo
+// canjee otra persona (ver acciones "gift-checkout"/"gift-confirm" y
+// "redeem-gift"). Prefijo distinto a LUX- (acceso de sesion) para que no
+// se confundan a simple vista.
+function genGiftCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin 0/O ni 1/I/L
+  let s = "";
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return "LUXGIFT-" + s;
 }
 function slotIsAvailable(slot: any) {
   if (slot.booked) return false;
@@ -777,6 +791,17 @@ async function verifySubscriberByEmail(store: any, email: string) {
   // Membresías ad-honores (otorgadas a mano desde Setup, sin PayPal de por
   // medio) — su estado vive 100% en nuestro store, nunca llamamos a PayPal.
   if (sub.source === "honorary") return sub.status === "ACTIVE";
+  // Regalos canjeados (idea #9 de la auditoría de producto): a diferencia
+  // de las ad-honores, sí vencen -- 1 o 12 meses reales desde que se
+  // canjearon (ver acción "redeem-gift").
+  if (sub.source === "gift") {
+    if (sub.status !== "ACTIVE") return false;
+    if (sub.expiresAt && Date.now() > new Date(sub.expiresAt).getTime()) {
+      sub.status = "EXPIRED";
+      return false;
+    }
+    return true;
+  }
   if (!sub.subscriptionId) return false;
   try {
     const data: any = await paypalFetch(`v1/billing/subscriptions/${sub.subscriptionId}`);
@@ -1020,6 +1045,28 @@ function activationEmailHtml(planKey: string, activationUrl: string, es: boolean
     <h1 style="color:#d4a85a;font-size:22px;">${title}</h1>
     <p style="font-size:15px;line-height:1.6;max-width:420px;margin:16px auto;">${body}</p>
     <a href="${activationUrl}" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#d4a85a;color:#0f0a24;text-decoration:none;border-radius:8px;font-weight:bold;">${cta}</a>
+  </div>`;
+}
+
+function giftEmailHtml(planKey: string, billing: string, code: string, senderMessage: string, es: boolean) {
+  const esc = (s: string) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+  const planName = ({ luna: "Luna", estrella: "Estrella", oraculo: "Oráculo" } as Record<string, string>)[planKey] || planKey;
+  const period = billing === "year" ? (es ? "un año" : "a year") : (es ? "un mes" : "a month");
+  const title = es ? `¡Te regalaron una membresía ${planName}!` : `You've been gifted a ${planName} membership!`;
+  const body = es
+    ? `Alguien te regaló ${period} de <strong>${planName}</strong> en Lux Astral. Usa este código para canjearlo desde tu cuenta (Perfil → Canjear regalo):`
+    : `Someone gifted you ${period} of <strong>${planName}</strong> on Lux Astral. Use this code to redeem it from your account (Profile → Redeem a gift):`;
+  const cta = es ? "Ir a Lux Astral" : "Go to Lux Astral";
+  const msgBlock = senderMessage
+    ? `<p style="font-size:14px;line-height:1.6;max-width:420px;margin:16px auto;font-style:italic;border-left:2px solid #d4a85a;padding-left:12px;text-align:left;">"${esc(senderMessage)}"</p>`
+    : "";
+  return `<div style="font-family:Georgia,serif;background:#0f0a24;color:#f0e2c0;padding:32px;text-align:center;">
+    <h1 style="color:#d4a85a;font-size:22px;">${title}</h1>
+    <p style="font-size:15px;line-height:1.6;max-width:420px;margin:16px auto;">${body}</p>
+    <div style="display:inline-block;margin:12px 0;padding:14px 24px;background:rgba(212,168,90,0.12);border:1px dashed #d4a85a;border-radius:8px;font-size:20px;letter-spacing:0.06em;font-family:monospace;color:#d4a85a;">${esc(code)}</div>
+    ${msgBlock}
+    <a href="https://luxastral.com/Arcana.html" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#d4a85a;color:#0f0a24;text-decoration:none;border-radius:8px;font-weight:bold;">${cta}</a>
   </div>`;
 }
 
@@ -2480,6 +2527,165 @@ export default async (req: Request) => {
         meetingLink: tr ? tr.meetingLink : "", accessCode: booking.accessCode, amount: booking.amount,
         videoRoomUrl: booking.videoRoomUrl || "", videoJoinFrom: booking.videoJoinFrom || null,
       });
+    }
+
+    // Regalos canjeables por email (idea #9 de la auditoria de producto, a
+    // pedido de Christian): quien compra paga un plan por PayPal como
+    // cualquier suscripcion de una sola vez (mismo patron que "checkout"/
+    // "confirm" para sesiones en vivo), pero en vez de activarse en su
+    // propia cuenta recibe un codigo para regalar. Reusa la infraestructura
+    // de membresias ad-honores (store.subscribers con discriminador
+    // "source") en vez de armar un sistema paralelo.
+    if (action === "gift-checkout") {
+      const { planKey, billing, recipientEmail, recipientName, message } = payload;
+      const email = requireUserAuth(store, payload);
+      if (!email) return json(401, { error: "Sesion vencida - inicia sesion de nuevo." });
+      if (!HONORARY_PLAN_KEYS.includes(planKey)) {
+        return json(400, { error: "Los regalos son solo para Luna, Estrella u Oraculo." });
+      }
+      if (billing !== "month" && billing !== "year") {
+        return json(400, { error: "Falta indicar si el regalo es mensual o anual." });
+      }
+      const recEmail = (recipientEmail || "").trim().toLowerCase();
+      if (recEmail && !recEmail.includes("@")) {
+        return json(400, { error: "El email del destinatario no es valido." });
+      }
+
+      const prices = getPlanPrices(store);
+      const priceKey = `${planKey}_${billing}`;
+      const price = Number(prices[priceKey]);
+      if (!price) return json(400, { error: "No se pudo calcular el precio del regalo." });
+
+      const giftId = genId("gift");
+      const gift = {
+        id: giftId, planKey, billing, amount: price, currency: "usd",
+        buyerEmail: email, recipientEmail: recEmail || null, recipientName: (recipientName || "").slice(0, 80),
+        message: (message || "").slice(0, 240), code: null, status: "pending",
+        paypalOrderId: null, createdAt: new Date().toISOString(),
+      };
+      store.giftCodes.push(gift);
+      await saveStore(store);
+
+      const planName = ({ luna: "Luna", estrella: "Estrella", oraculo: "Oráculo" } as Record<string, string>)[planKey] || planKey;
+      const label = `Lux Astral — regalo ${planName} (${billing === "year" ? "anual" : "mensual"})`;
+
+      let order: any;
+      try {
+        order = await paypalFetch("v2/checkout/orders", {
+          method: "POST",
+          json: {
+            intent: "CAPTURE",
+            purchase_units: [{
+              custom_id: giftId,
+              description: label.slice(0, 127),
+              amount: { currency_code: "USD", value: price.toFixed(2) },
+            }],
+          },
+        });
+      } catch (e: any) {
+        if (e.isConfig) return json(500, { error: e.message });
+        return json(502, { error: "No se pudo iniciar el pago con PayPal.", detail: e.detail });
+      }
+
+      gift.paypalOrderId = order.id;
+      await saveStore(store);
+      return json(200, { orderId: order.id, giftId });
+    }
+
+    if (action === "gift-confirm") {
+      const { orderId, lang } = payload;
+      const gift = store.giftCodes.find((g: any) => g.paypalOrderId === orderId);
+      if (!gift) return json(404, { error: "Regalo no encontrado." });
+
+      if (gift.status === "paid" || gift.status === "redeemed") {
+        return json(200, { status: "paid", code: gift.code, planKey: gift.planKey, billing: gift.billing });
+      }
+
+      let capture: any;
+      try {
+        capture = await paypalFetch(`v2/checkout/orders/${orderId}/capture`, { method: "POST" });
+      } catch (e: any) {
+        if (e.isConfig) return json(500, { error: e.message });
+        return json(502, { error: "No se pudo confirmar el pago con PayPal.", detail: e.detail });
+      }
+
+      if (capture.status !== "COMPLETED") {
+        return json(200, { status: capture.status || "pending" });
+      }
+
+      gift.status = "paid";
+      gift.confirmedAt = new Date().toISOString();
+      gift.code = genGiftCode();
+      logEvent(store, { email: gift.buyerEmail, type: "income", detail: { kind: "gift", planKey: gift.planKey, billing: gift.billing, amount: gift.amount } });
+
+      let emailSent = false;
+      if (gift.recipientEmail) {
+        try {
+          const es = lang !== "en";
+          await resendSend(
+            gift.recipientEmail,
+            es ? "¡Te regalaron una membresía en Lux Astral!" : "You've been gifted a Lux Astral membership!",
+            giftEmailHtml(gift.planKey, gift.billing, gift.code, gift.message, es)
+          );
+          emailSent = true;
+        } catch (e: any) {
+          if (!e.isConfig) console.error("[booking:gift-email]", e.status || "", e.detail || e.message);
+        }
+      }
+
+      await saveStore(store);
+      return json(200, { status: "paid", code: gift.code, planKey: gift.planKey, billing: gift.billing, emailSent });
+    }
+
+    if (action === "redeem-gift") {
+      const email = requireUserAuth(store, payload);
+      if (!email) return json(401, { error: "Sesion vencida - inicia sesion de nuevo." });
+      const code = String(payload.code || "").trim().toUpperCase();
+      if (!code) return json(400, { error: "Falta el codigo del regalo." });
+
+      const gift = store.giftCodes.find((g: any) => g.code === code);
+      if (!gift || gift.status !== "paid") {
+        return json(404, { error: "Ese codigo no existe o ya fue usado." });
+      }
+
+      let entry = store.subscribers.find((s: any) => s.email === email);
+      const now = Date.now();
+      const hasOtherActive = !!entry && entry.status === "ACTIVE" && entry.source !== "gift"
+        && (entry.source === "honorary" || !!entry.subscriptionId);
+      if (hasOtherActive) {
+        return json(409, { error: "Ya tenes una membresía activa — cancelala antes de canjear un regalo, para no perder tu plan actual." });
+      }
+
+      const months = gift.billing === "year" ? 12 : 1;
+      // Si ya tenia un regalo activo sin vencer, el nuevo se suma al final
+      // en vez de pisarlo (un regalo no deberia acortar el anterior).
+      const baseFrom = (entry && entry.source === "gift" && entry.status === "ACTIVE" && entry.expiresAt && new Date(entry.expiresAt).getTime() > now)
+        ? new Date(entry.expiresAt).getTime()
+        : now;
+      const expiresAt = new Date(baseFrom);
+      expiresAt.setMonth(expiresAt.getMonth() + months);
+
+      if (!entry) {
+        entry = { email };
+        store.subscribers.push(entry);
+      }
+      entry.planKey = gift.planKey;
+      entry.source = "gift";
+      entry.status = "ACTIVE";
+      entry.subscriptionId = null;
+      entry.billing = "gift";
+      entry.expiresAt = expiresAt.toISOString();
+      entry.activationToken = entry.activationToken || genId("act");
+      if (typeof entry.newsletterOptIn !== "boolean") entry.newsletterOptIn = false;
+      entry.updatedAt = new Date().toISOString();
+
+      gift.status = "redeemed";
+      gift.redeemedByEmail = email;
+      gift.redeemedAt = new Date().toISOString();
+
+      logEvent(store, { email, type: "gift-redeemed", detail: { planKey: gift.planKey, billing: gift.billing, code } });
+      await saveStore(store);
+      return json(200, { ok: true, planKey: entry.planKey, expiresAt: entry.expiresAt });
     }
 
     if (action === "setup-login") {

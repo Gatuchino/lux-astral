@@ -91,6 +91,13 @@ window.arcanaSaveBookingSettings = (settings) => arcanaBookingCall('save-setting
 window.arcanaCreateCheckout = (opts) => arcanaBookingCall('checkout', opts); // -> { orderId, bookingId }
 window.arcanaConfirmBooking = (orderId) => arcanaBookingCall('confirm', { orderId }); // captura la orden en PayPal
 
+// Regalos canjeables (idea #9 de la auditoria de producto): el comprador
+// paga un plan por PayPal como cualquier checkout de una sola vez y
+// recibe un codigo que otra persona canjea con arcanaRedeemGift.
+window.arcanaGiftCheckout = (opts) => arcanaBookingCall('gift-checkout', opts); // { planKey, billing, recipientEmail?, recipientName?, message? } -> { orderId, giftId }
+window.arcanaGiftConfirm = (orderId, lang) => arcanaBookingCall('gift-confirm', { orderId, lang }); // captura la orden en PayPal -> { status, code, planKey, billing, emailSent }
+window.arcanaRedeemGift = (code) => arcanaBookingCall('redeem-gift', { code }); // -> { ok, planKey, expiresAt }
+
 // Suscripciones (Planes de Precios) — cobro recurrente real con PayPal
 // Subscriptions, identificado por email (sin cuentas/login todavía).
 window.arcanaSubscriptionPlans = async function () {

@@ -2018,7 +2018,10 @@ function ProfilePage({ lang, profile, updateProfile, readings, charts, setRoute,
           )}
         </div>
         {!editing && (
-          <button className="btn btn-ghost" onClick={startEdit}>✎ {es ? 'Editar perfil' : 'Edit profile'}</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+            <button className="btn btn-ghost" onClick={startEdit}>✎ {es ? 'Editar perfil' : 'Edit profile'}</button>
+            <button className="btn btn-ghost" onClick={() => setRoute({ page: 'gift' })}>🎁 {es ? 'Regalar / canjear' : 'Gift / redeem'}</button>
+          </div>
         )}
       </div>
 

@@ -151,6 +151,7 @@ function DashboardPage({ lang, setRoute, profile, planInfo, readings, dailyCard,
           <button className="btn btn-primary" onClick={() => setRoute({ page: 'readings' })}>{es ? 'Comenzar una lectura' : 'Begin a reading'} ✦</button>
           <button className="btn btn-ghost" onClick={() => setRoute({ page: 'chart' })}>{es ? 'Mi Carta Astral' : 'My Astral Chart'}</button>
           <button className="btn btn-ghost" onClick={() => setRoute({ page: 'profile' })}>{es ? 'Mi historial y Cofre' : 'My history & Chest'}</button>
+          <button className="btn btn-ghost" onClick={() => setRoute({ page: 'gift' })}>🎁 {es ? 'Regalar / canjear' : 'Gift / redeem'}</button>
         </div>
       </div>
 

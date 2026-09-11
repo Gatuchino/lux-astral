@@ -290,6 +290,7 @@ function App() {
     case 'chart':       page = <ChartPage lang={lang} profile={profile} planInfo={planInfo} setRoute={setRoute} requireAuth={requireAuth} saveChart={saveChart} updateChart={updateChart} />; break;
     case 'moon':        page = <MoonPage lang={lang} />; break;
     case 'dashboard':   page = <DashboardPage lang={lang} setRoute={setRoute} profile={profile} planInfo={planInfo} readings={readings} dailyCard={dailyCard} requireAuth={requireAuth} />; break;
+    case 'gift':       page = <GiftPage lang={lang} setRoute={setRoute} profile={profile} requireAuth={requireAuth} />; break;
     case 'quickcard':   page = <QuickCardPage lang={lang} setRoute={setRoute} />; break;
     case 'marketplace': page = <MarketplacePage lang={lang} setRoute={setRoute} profile={profile} />; break;
     case 'sessioncheckout': page = <SessionCheckoutPage lang={lang} setRoute={setRoute} profile={profile} tarotistId={route.tarotistId} />; break;
