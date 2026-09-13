@@ -548,18 +548,25 @@ function moonLitSide(waxing, hemisphere) {
 // Trayectoria SVG de la sombra real del disco lunar (proyección del
 // terminador día/noche de una esfera), centrada en (0,0) con radio R.
 // rx = R*|1-2k| es el semieje del arco elíptico del terminador (ecuación
-// estándar de la proyección ortográfica del límite día/noche). Verificada
-// numéricamente antes de usarse: el área que encierra coincide con
-// (1-k)*pi*R^2 para k de 0 a 1, y el lado oscuro queda geométricamente del
-// lado correcto (no solo el área, también la posición), para litSide
-// 'right' y 'left'.
+// estándar de la proyección ortográfica del límite día/noche).
+//
+// 2026-09-13 (a pedido de Christian, reportó la luna casi llena mostrada
+// con 4% de iluminación): el área que encierra esta trayectoria estaba
+// invertida -- daba k*pi*R^2 (el lado ILUMINADO) en vez de (1-k)*pi*R^2
+// (el lado OSCURO, que es lo que se pinta encima de la foto). Con luna
+// nueva real (k≈0.04) se veía casi toda la luna clara con solo un
+// filito oscuro, exactamente al revés de lo que corresponde. Verificado
+// numéricamente rasterizando la trayectoria: con el branch original el
+// área oscura resultante era ≈k (no ≈1-k); invirtiendo a qué lado se
+// bulge el arco variable cuando k<0.5 arregla el área Y mantiene el
+// lado geométrico correcto para litSide 'right' y 'left'.
 function moonMaskPath(R, k, litSide) {
   const kk = Math.min(1, Math.max(0, k));
   const rx = R * Math.abs(1 - 2 * kk);
   const darkBulge = litSide === 'right' ? -1 : 1;
   const sweepBig = darkBulge === 1 ? 1 : 0;
   const litBulge = -darkBulge;
-  const terminatorBulge = kk < 0.5 ? litBulge : darkBulge;
+  const terminatorBulge = kk < 0.5 ? darkBulge : litBulge;
   const sweepEllipse = terminatorBulge === 1 ? 1 : 0;
   return `M 0,${-R} A ${R},${R} 0 0,${sweepBig} 0,${R} A ${rx},${R} 0 0,${sweepEllipse} 0,${-R} Z`;
 }
@@ -1150,7 +1157,14 @@ function MoonPage({ lang }) {
           inset: 0;
           background: var(--bg-2);
           border-radius: 50%;
-          transform: translateX(calc((100% - var(--illum) * 2%) * 1));
+          /* 2026-09-13: misma inversión que moonMaskPath (ver esa función
+             más arriba) -- a 0% de iluminación esto quedaba sin desplazar
+             (translateX 100%, o sea, totalmente FUERA del círculo) y se
+             veía la luna llena de clara en vez de oscura. Con illum=0 la
+             sombra ahora queda sin desplazar (cubre todo = oscura) y con
+             illum=100 se desplaza el 100% de su ancho (sale del círculo =
+             clara). */
+          transform: translateX(calc(var(--illum) * 1%));
         }
         .moon-day-label {
           font-family: 'Cinzel', serif;
